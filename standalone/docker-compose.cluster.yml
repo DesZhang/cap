@@ -14,11 +14,27 @@ services:
     environment:
       # ── Required ───────────────────────────────────────
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required}
-      REDIS_CLUSTER_URLS: ${REDIS_CLUSTER_URLS:?REDIS_CLUSTER_URLS is required}
-      REDIS_CLUSTER_PASSWORD: ${REDIS_CLUSTER_PASSWORD:?REDIS_CLUSTER_PASSWORD is required}
+
+      # ── Redis: Cluster mode ────────────────────────────
+      # Set these for Redis Cluster deployments.
+      # When REDIS_CLUSTER_URLS is set, it takes precedence over REDIS_URL.
+      REDIS_CLUSTER_URLS: ${REDIS_CLUSTER_URLS:-}
+      REDIS_CLUSTER_PASSWORD: ${REDIS_CLUSTER_PASSWORD:-}
+      REDIS_CLUSTER_USERNAME: ${REDIS_CLUSTER_USERNAME:-}
+
+      # ── Redis: Standalone mode ─────────────────────────
+      # Used when REDIS_CLUSTER_URLS is empty/unset.
+      REDIS_URL: ${REDIS_URL:-redis://localhost:6379}
+
+      # ── Redis key namespace ────────────────────────────
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-cap:}
+
+      # ── Token TTL ──────────────────────────────────────
+      # Lifetime of a solved CAPTCHA token before it expires.
+      # Default: 2 hours (7200000ms). Set shorter for tighter security.
+      TOKEN_TTL_MS: ${TOKEN_TTL_MS:-}
 
       # ── Recommended ────────────────────────────────────
-      REDIS_CLUSTER_USERNAME: ${REDIS_CLUSTER_USERNAME:-}
       RATELIMIT_IP_HEADER: ${RATELIMIT_IP_HEADER:-X-Forwarded-For}
 
       # ── Pinned safe values (do not change in production) ─

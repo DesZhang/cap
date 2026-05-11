@@ -65,7 +65,7 @@ function getClientIp(request, srv) {
 }
 
 const CHALLENGE_TTL_MS = 15 * 60 * 1000; // 15min
-const TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2h
+const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS) || 2 * 60 * 60 * 1000; // 2h default, configurable via env
 
 function ipv4ToInt(a) {
   return a.split(".").reduce((r, b) => (r << 8) + parseInt(b, 10), 0) >>> 0;
