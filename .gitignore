@@ -101,3 +101,4 @@ trycap
 .claude
 # Compound Engineering local config
 .compound-engineering/*.local.yaml
+skills-lock.json

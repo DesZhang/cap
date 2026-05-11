@@ -1,0 +1,39 @@
+services:
+  cap:
+    build:
+      context: ..
+      dockerfile: standalone/Dockerfile
+      args:
+        # Widget and WASM versions fetched from jsdelivr during docker build.
+        # Update these and rebuild to upgrade the widget.
+        CAP_WIDGET_VERSION: "0.1.50"
+        CAP_WASM_VERSION: "0.0.7"
+    container_name: cap
+    ports:
+      - "3000:3000"
+    environment:
+      # ── Required ───────────────────────────────────────
+      ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required}
+      REDIS_CLUSTER_URLS: ${REDIS_CLUSTER_URLS:?REDIS_CLUSTER_URLS is required}
+      REDIS_CLUSTER_PASSWORD: ${REDIS_CLUSTER_PASSWORD:?REDIS_CLUSTER_PASSWORD is required}
+
+      # ── Recommended ────────────────────────────────────
+      REDIS_CLUSTER_USERNAME: ${REDIS_CLUSTER_USERNAME:-}
+      RATELIMIT_IP_HEADER: ${RATELIMIT_IP_HEADER:-X-Forwarded-For}
+
+      # ── Pinned safe values (do not change in production) ─
+      # SHOW_ERRORS: when true, API error responses include full stack traces.
+      #   Default is false (returns only a troubleshooting URL + error ID).
+      #   Setting to true leaks internal details to clients.
+      SHOW_ERRORS: "false"
+      # DISABLE_ERROR_LOGGING: when true, server errors are not logged to stdout.
+      #   Default is false (errors are logged as JSON with stack, timestamp, memory).
+      #   Setting to true hides all error visibility — never do this in production.
+      DISABLE_ERROR_LOGGING: "false"
+      # DEMO_MODE: when true, ADMIN_KEY is not required and the dashboard is
+      #   publicly accessible without login. Default is false.
+      #   Setting to true allows anyone to manage your keys.
+      DEMO_MODE: "false"
+
+      SERVER_PORT: 3000
+    restart: unless-stopped

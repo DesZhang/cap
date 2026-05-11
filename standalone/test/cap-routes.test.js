@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RedisClient } from "bun";
+import Redis from "ioredis";
 import { Elysia } from "elysia";
 
 const REDIS_URL =
@@ -8,14 +8,28 @@ const REDIS_URL =
 let redisAvailable = false;
 let probeClient;
 try {
-  probeClient = new RedisClient(REDIS_URL);
-  await probeClient.send("PING", []);
+  probeClient = new Redis(REDIS_URL, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null,
+  });
+  // Suppress ioredis internal error logging
+  probeClient.on("error", () => {});
+  await probeClient.connect();
+  await probeClient.ping();
   redisAvailable = true;
 } catch (e) {
   console.warn(
     "[standalone-test] redis not available, skipping integration tests:",
     e.message,
   );
+} finally {
+  if (probeClient) {
+    try {
+      await probeClient.quit();
+    } catch {}
+    probeClient = null;
+  }
 }
 
 if (!redisAvailable) {
@@ -76,8 +90,10 @@ if (!redisAvailable) {
 
   afterAll(async () => {
     // Cleanup: remove the site key and any blocklist/token entries
+    // Note: keyPrefix does not apply to KEYS pattern args, so we prefix manually
+    const prefix = process.env.REDIS_KEY_PREFIX || "cap:";
     await db.send("DEL", [`key:${SITE_KEY}`]);
-    const keys = await db.send("KEYS", [`metrics:*:${SITE_KEY}`]);
+    const keys = await db.send("KEYS", [`${prefix}metrics:*:${SITE_KEY}`]);
     if (Array.isArray(keys) && keys.length > 0) {
       await db.send("DEL", keys);
     }
