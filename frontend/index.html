@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cap CAPTCHA 集成演示</title>
+    <!--
+      Cap Widget 脚本 — 从 Cap Standalone 资源服务器加载
+      确保已在 docker/.env 中设置 ENABLE_ASSETS_SERVER=true
+      生产环境建议锁定具体版本号
+    -->
+    <script>
+      // Load WASM from Cap server instead of CDN — required for air-gapped deployments
+      window.CAP_CUSTOM_WASM_URL = 'http://localhost:3000/assets/cap_wasm_bg.wasm';
+    </script>
+    <script src="http://localhost:3000/assets/widget.js" defer></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
