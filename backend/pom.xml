@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.5.0</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.cib.cap</groupId>
+	<artifactId>backend</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>CapDemo</name>
+	<description/>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	<properties>
+		<java.version>21</java.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+
+	<!--
+		独立加密工具构建: mvn -Pencrypt-cli package
+		输出: target/cap-encrypt-cli.jar (无 Spring 依赖，约 5KB)
+	-->
+	<profiles>
+		<profile>
+			<id>encrypt-cli</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-jar-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>encrypt-cli-jar</id>
+								<phase>package</phase>
+								<goals>
+									<goal>jar</goal>
+								</goals>
+								<configuration>
+									<classifier>encrypt-cli</classifier>
+									<includes>
+										<include>com/cib/cap/crypto/AesCrypto.class</include>
+									</includes>
+									<archive>
+										<manifest>
+											<mainClass>com.cib.cap.crypto.AesCrypto</mainClass>
+										</manifest>
+									</archive>
+								</configuration>
+							</execution>
+							</executions>
+						</plugin>
+						<plugin>
+							<groupId>org.apache.maven.plugins</groupId>
+							<artifactId>maven-antrun-plugin</artifactId>
+							<executions>
+								<execution>
+									<id>copy-encrypt-cli</id>
+									<phase>package</phase>
+									<goals>
+										<goal>run</goal>
+									</goals>
+									<configuration>
+										<target>
+											<copy file="${project.build.directory}/backend-${project.version}-encrypt-cli.jar" tofile="${project.basedir}/../tools/cap-encrypt-cli.jar" overwrite="true"/>
+										</target>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+					</plugins>
+				</build>
+		</profile>
+	</profiles>
+
+</project>
