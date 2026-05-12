@@ -46,6 +46,7 @@ if (clusterUrls) {
   });
 
   db = new Redis.Cluster(nodes, {
+    lazyConnect: true,
     redisOptions: {
       ...commonOptions,
       username: process.env.REDIS_CLUSTER_USERNAME || undefined,

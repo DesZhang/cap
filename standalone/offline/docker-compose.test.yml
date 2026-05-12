@@ -1,26 +1,18 @@
 # Cap Offline — 构建时冒烟测试 Docker Compose
 # 仅用于 smoke-test.sh，不在生产环境使用。
+#
+# 本测试使用宿主机上由 mock-redis-cluster.sh 启动的 Redis 集群。
+# REDIS_CLUSTER_HOST 由 smoke-test.sh 在运行时自动检测并注入。
 
 services:
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   cap:
     image: cap-offline:${VERSION:-3.1.0}
     ports:
       - "${TEST_PORT:-13000}:3000"
     environment:
       ADMIN_KEY: test_admin_key_for_smoke
-      REDIS_URL: redis://redis:6379
+      REDIS_CLUSTER_URLS: redis://${REDIS_CLUSTER_HOST}:17000,redis://${REDIS_CLUSTER_HOST}:17001,redis://${REDIS_CLUSTER_HOST}:17002
       BASE_PATH: /cap
       SHOW_ERRORS: "true"
       HIDE_RATELIMIT_IP_WARNING: "true"
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: "no"

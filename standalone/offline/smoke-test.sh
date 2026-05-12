@@ -2,12 +2,13 @@
 # ── Cap Offline — 构建时冒烟测试 ──────────────────────────
 #
 # 在 build-package.sh 中自动调用，验证构建产物基本可用。
-# 使用 docker-compose.test.yml 启动单机 Redis + Cap 容器。
+# 使用 docker-compose.test.yml 启动 Cap 容器，连接宿主机本地 Redis 集群。
 #
 # 用法: VERSION=3.1.0 bash smoke-test.sh
 # 环境变量:
-#   VERSION   - Cap 版本号（默认读取 package.json）
-#   TEST_PORT - 映射到宿主机的测试端口（默认 13000）
+#   VERSION            - Cap 版本号（默认读取 package.json）
+#   TEST_PORT          - 映射到宿主机的测试端口（默认 13000）
+#   REDIS_CLUSTER_HOST - Redis 集群宿主机 IP（默认自动检测）
 
 set -euo pipefail
 
@@ -17,6 +18,10 @@ TEST_PORT="${TEST_PORT:-13000}"
 CAP_URL="http://localhost:${TEST_PORT}"
 ADMIN_KEY="test_admin_key_for_smoke"
 COMPOSE_PROJECT="cap-smoke-test"
+
+# Detect host IP for Redis cluster (macOS / Linux)
+HOST_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo '127.0.0.1')"
+export REDIS_CLUSTER_HOST="${REDIS_CLUSTER_HOST:-$HOST_IP}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -34,6 +39,8 @@ cleanup() {
     info "清理测试容器..."
     cd "$SCRIPT_DIR"
     docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT" down --remove-orphans 2>/dev/null || true
+    info "停止本地 Redis 集群..."
+    bash "$SCRIPT_DIR/scripts/mock-redis-cluster.sh" stop 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -43,6 +50,10 @@ echo "════════════════════════�
 echo "  Cap Offline 冒烟测试  v${VERSION}"
 echo "══════════════════════════════════════════"
 echo ""
+
+# ── Step 0: 启动本地 Redis 集群 ───────────────────────────
+info "[0/6] 启动本地 Redis 集群..."
+bash "$SCRIPT_DIR/scripts/mock-redis-cluster.sh" start "$REDIS_CLUSTER_HOST"
 
 # ── Step 1: 启动容器 ──────────────────────────────────────
 info "[1/6] 启动测试容器..."
