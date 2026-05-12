@@ -56,6 +56,20 @@ onMounted(() => {
   widget = document.createElement('cap-widget');
   widget.setAttribute('data-cap-api-endpoint', props.capApiEndpoint);
   widgetContainer.value.appendChild(widget);
+
+  // Auto-trigger solve after a short delay to allow speculative pre-solve to run.
+  // The widget's speculative solver runs in the background after user interaction
+  // events (mousemove). Once a speculative token is ready, calling solve() returns
+  // it immediately and populates the hidden input.
+  setTimeout(async () => {
+    if (widget && widget.solve) {
+      try {
+        await widget.solve();
+      } catch {
+        // solve() may fail if the widget was unmounted or no challenge available
+      }
+    }
+  }, 4000);
 });
 
 onUnmounted(() => {

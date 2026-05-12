@@ -50,6 +50,16 @@ onMounted(async () => {
   } catch {
     capReady.value = false;
   }
+
+  // Trigger Cap widget speculative solve by dispatching synthetic user events.
+  // The Cap widget waits for user interaction (mousemove/touchstart/keydown)
+  // before starting its background challenge-solve. In automated test
+  // environments no real mouse events occur, so we synthesize one after
+  // a short delay to kick off the speculative solve pipeline.
+  setTimeout(() => {
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  }, 1000);
 });
 </script>
 

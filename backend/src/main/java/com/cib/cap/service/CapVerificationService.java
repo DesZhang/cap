@@ -101,6 +101,7 @@ public class CapVerificationService {
         );
 
         String responseBody;
+        int statusCode = 200;
         try {
             responseBody = restClient.post()
                     .uri(verifyUrl)
@@ -109,12 +110,26 @@ public class CapVerificationService {
                     .retrieve()
                     .body(String.class);
         } catch (org.springframework.web.client.HttpClientErrorException e) {
+            statusCode = e.getStatusCode().value();
             responseBody = e.getResponseBodyAsString();
         } catch (org.springframework.web.client.HttpServerErrorException e) {
+            statusCode = e.getStatusCode().value();
             responseBody = e.getResponseBodyAsString();
         }
 
-        JsonNode json = objectMapper.readTree(responseBody);
+        if (responseBody == null || responseBody.isBlank()) {
+            log.warn("Cap siteverify 返回空响应 (status {})", statusCode);
+            return VerifyResult.tokenInvalid("empty response from Cap server");
+        }
+
+        JsonNode json;
+        try {
+            json = objectMapper.readTree(responseBody);
+        } catch (Exception e) {
+            log.warn("Cap siteverify 返回非 JSON 响应 (status {}): {}", statusCode,
+                    responseBody.substring(0, Math.min(responseBody.length(), 200)));
+            return VerifyResult.tokenInvalid("invalid response from Cap server");
+        }
         boolean success = json.has("success") && json.get("success").asBoolean();
 
         if (success) {

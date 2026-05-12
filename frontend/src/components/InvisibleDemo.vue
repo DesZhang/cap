@@ -7,21 +7,27 @@
     </p>
 
     <div class="code-hint">
-      <pre><code>&lt;!-- 浮动模式：绑定到触发按钮 --&gt;
+      <pre><code>&lt;!-- 浮动模式：触发按钮指向 Widget --&gt;
 &lt;cap-widget
   id="floating-widget"
   data-cap-api-endpoint="{{ capApiEndpoint }}"
-  data-cap-floating="#trigger-btn"
-  data-cap-floating-position="bottom"
 &gt;&lt;/cap-widget&gt;
 
-&lt;button id="trigger-btn"&gt;触发验证&lt;/button&gt;</code></pre>
+&lt;button
+  data-cap-floating="#floating-widget"
+  data-cap-floating-position="bottom"
+&gt;触发验证&lt;/button&gt;</code></pre>
     </div>
 
     <div ref="widgetContainer" class="widget-container"></div>
 
     <div class="demo-controls">
-      <button id="trigger-btn" @click="onTrigger" :disabled="loading">
+      <button
+        ref="triggerBtn"
+        data-cap-floating="#floating-widget"
+        data-cap-floating-position="bottom"
+        :disabled="loading"
+      >
         {{ loading ? '验证中...' : '触发浮动验证' }}
       </button>
     </div>
@@ -49,12 +55,10 @@ onMounted(() => {
   widget = document.createElement('cap-widget');
   widget.id = 'floating-widget';
   widget.setAttribute('data-cap-api-endpoint', props.capApiEndpoint);
-  widget.setAttribute('data-cap-floating', '#trigger-btn');
-  widget.setAttribute('data-cap-floating-position', 'bottom');
   widgetContainer.value.appendChild(widget);
 
   // 监听完成事件
-  widget.addEventListener('complete', (e) => {
+  widget.addEventListener('solve', (e) => {
     handleComplete(e.detail?.token);
   });
 });
@@ -66,8 +70,8 @@ onUnmounted(() => {
 });
 
 function onTrigger() {
-  // 浮动 widget 会在点击按钮时自动触发
-  // complete 事件会捕获 token
+  // 浮动 widget 由 floating.js 自动处理触发
+  // solve 事件会捕获 token
 }
 
 async function handleComplete(capToken) {

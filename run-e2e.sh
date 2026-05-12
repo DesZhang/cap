@@ -55,7 +55,7 @@ done
 
 # ── Pre-flight: kill any lingering processes on test ports ──────────
 log "Pre-flight: checking ports $REDIS_PORT, $CAP_PORT, $BACKEND_PORT, $BACKEND_WRONG_SECRET_PORT, $FRONTEND_PORT"
-for port in $REDIS_PORT $BACKEND_PORT $BACKEND_WRONG_SECRET_PORT $FRONTEND_PORT; do
+for port in $REDIS_PORT $CAP_PORT $BACKEND_PORT $BACKEND_WRONG_SECRET_PORT $FRONTEND_PORT; do
   pid=$(lsof -ti :$port 2>/dev/null || true)
   if [[ -n "$pid" ]]; then
     warn "Killing lingering process on port $port: $pid"
@@ -316,10 +316,10 @@ assert_status() {
   local actual="$3"
   if [[ "$actual" == "$expected" ]]; then
     log "  ✓ $description → $actual"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     err "  ✗ $description → expected $expected, got $actual"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 }
 
