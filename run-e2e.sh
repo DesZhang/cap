@@ -53,6 +53,21 @@ for arg in "$@"; do
   esac
 done
 
+# ── Pre-flight: kill any lingering processes on test ports ──────────
+log "Pre-flight: checking ports $REDIS_PORT, $CAP_PORT, $BACKEND_PORT, $BACKEND_WRONG_SECRET_PORT, $FRONTEND_PORT"
+for port in $REDIS_PORT $BACKEND_PORT $BACKEND_WRONG_SECRET_PORT $FRONTEND_PORT; do
+  pid=$(lsof -ti :$port 2>/dev/null || true)
+  if [[ -n "$pid" ]]; then
+    warn "Killing lingering process on port $port: $pid"
+    kill $pid 2>/dev/null || true
+    sleep 1
+  fi
+done
+# Also stop any leftover Cap container
+docker rm -f cap-e2e 2>/dev/null || true
+redis-cli -p $REDIS_PORT shutdown NOSAVE 2>/dev/null || true
+sleep 1
+
 # ── Cleanup trap ────────────────────────────────────────────────────────
 cleanup() {
   if [[ "$KEEP" == "true" ]]; then
@@ -139,7 +154,6 @@ docker run -d \
   -e "DISABLE_ERROR_LOGGING=false" \
   -e "DEMO_MODE=false" \
   -e "SERVER_PORT=$CAP_PORT" \
-  --add-host=host.docker.internal:host-gateway \
   cap-e2e:latest
 
 log "Waiting for Cap to be healthy..."
@@ -222,9 +236,9 @@ echo $! > "$PID_DIR/backend-wrong.pid"
 # Wait for backends to be healthy
 log "Waiting for backends to be healthy..."
 for i in $(seq 1 30); do
-  STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
     -X POST -H "Content-Type: application/json" -d '{}' \
-    "http://localhost:$BACKEND_PORT/api/cap/verify" 2>/dev/null || echo "000")
+    "http://localhost:$BACKEND_PORT/api/cap/verify" 2>/dev/null || true)
   if [[ "$STATUS" == "400" ]]; then
     break
   fi
@@ -233,9 +247,9 @@ done
 [[ "$STATUS" == "400" ]] || die "Backend on :$BACKEND_PORT did not start"
 
 for i in $(seq 1 30); do
-  STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
     -X POST -H "Content-Type: application/json" -d '{}' \
-    "http://localhost:$BACKEND_WRONG_SECRET_PORT/api/cap/verify" 2>/dev/null || echo "000")
+    "http://localhost:$BACKEND_WRONG_SECRET_PORT/api/cap/verify" 2>/dev/null || true)
   if [[ "$STATUS" == "400" ]]; then
     break
   fi
@@ -310,21 +324,21 @@ assert_status() {
 }
 
 # 3a. Empty token → 400
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d '{"token":""}' \
   "$BACKEND_URL" 2>/dev/null || true)
 assert_status "Empty token" "400" "$STATUS"
 
 # 3b. Null/missing token → 400
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d '{}' \
   "$BACKEND_URL" 2>/dev/null || true)
 assert_status "Null token (missing field)" "400" "$STATUS"
 
 # 3c. Fabricated token → 401
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d '{"token":"fake-token-12345:not-real:abc"}' \
   "$BACKEND_URL" 2>/dev/null || true)
@@ -332,7 +346,7 @@ assert_status "Fabricated token" "401" "$STATUS"
 
 # 3d. Replay harvested token → 401
 FIRST_TOKEN=$(python3 -c "import json; print(json.load(open('$TOKEN_FILE'))[0]['token'])")
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d "{\"token\":\"$FIRST_TOKEN\"}" \
   "$BACKEND_URL" 2>/dev/null || true)
@@ -354,7 +368,7 @@ else:
 if [[ -n "$EXPIRED_TOKEN" ]]; then
   log "  Waiting 12s for token expiry (TTL=${TOKEN_TTL_MS}ms)..."
   sleep 12
-  STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
     -X POST -H "Content-Type: application/json" \
     -d "{\"token\":\"$EXPIRED_TOKEN\"}" \
     "$BACKEND_URL" 2>/dev/null || true)
@@ -373,7 +387,7 @@ log "  Stopping Cap container..."
 docker stop cap-e2e > /dev/null 2>&1
 
 # Send a real-format token to backend — backend will retry and fail
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d "{\"token\":\"$SITE_KEY:aaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbb\"}" \
   "$BACKEND_URL" 2>/dev/null || true)
@@ -396,7 +410,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 \
   -X POST -H "Content-Type: application/json" \
   -d "{\"token\":\"$SITE_KEY:aaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbb\"}" \
   "http://localhost:$BACKEND_WRONG_SECRET_PORT/api/cap/verify" 2>/dev/null || true)

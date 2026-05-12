@@ -5,6 +5,7 @@ export default defineConfig({
   timeout: 120_000,        // PoW solve can take a while
   expect: { timeout: 30_000 },
   fullyParallel: false,     // sequential — tests share service stack
+  workers: 1,              // single worker — avoid overwhelming the Cap container
   retries: 0,
   reporter: 'list',
   use: {

@@ -100,14 +100,19 @@ public class CapVerificationService {
                 java.util.Map.of("secret", secretKey, "response", token)
         );
 
-        String responseBody = restClient.post()
-                .uri(verifyUrl)
-                .header("Content-Type", "application/json")
-                .body(requestBody)
-                .retrieve()
-                .onStatus(status -> status.is4xxClientError(), (request, response) -> {
-                })
-                .body(String.class);
+        String responseBody;
+        try {
+            responseBody = restClient.post()
+                    .uri(verifyUrl)
+                    .header("Content-Type", "application/json")
+                    .body(requestBody)
+                    .retrieve()
+                    .body(String.class);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            responseBody = e.getResponseBodyAsString();
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+            responseBody = e.getResponseBodyAsString();
+        }
 
         JsonNode json = objectMapper.readTree(responseBody);
         boolean success = json.has("success") && json.get("success").asBoolean();

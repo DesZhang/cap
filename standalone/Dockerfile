@@ -41,6 +41,10 @@ RUN mkdir -p /assets && \
 
 FROM base AS release
 COPY --from=prod /temp/prod/standalone/node_modules node_modules
+# Copy core module to the symlink targets expected by bun workspace install
+# Bun creates symlinks to the workspace package locations from the install stage
+COPY --from=prod /temp/prod/core /temp/prod/core
+COPY --from=install /temp/dev/core /temp/dev/core
 COPY --from=prerelease /usr/src/app .
 COPY --from=asset-fetcher /assets /usr/src/app/baked-assets
 WORKDIR /usr/src/app
