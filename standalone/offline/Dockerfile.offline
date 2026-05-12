@@ -1,0 +1,92 @@
+# ── Cap Offline Dockerfile ─────────────────────────────────
+#
+# Builds an air-gapped Cap image with:
+#   - Widget JS + WASM assets baked in (fetched from CDN at build time)
+#   - DB-IP geo databases pre-bundled (country + ASN, CC-BY 4.0)
+#   - Swagger API explorer removed
+#   - BASE_PATH env var for configurable API prefix
+#   - IP DB auto-detection for pre-bundled .mmdb files
+#
+# All patches are applied at build time — source files are never modified.
+#
+# Build context: repository root (..)
+# Usage: docker build -f standalone/offline/Dockerfile.offline -t cap-offline:3.1.0 ..
+
+ARG CAP_WIDGET_VERSION=0.1.50
+ARG CAP_WASM_VERSION=0.0.7
+ARG GEO_DB_DATE=
+
+FROM oven/bun:slim AS base
+WORKDIR /usr/src/app
+
+# ── Install dev deps ──────────────────────────────────────
+FROM base AS install
+RUN mkdir -p /temp/dev/standalone /temp/dev/core
+COPY standalone/package.json standalone/bun.lock /temp/dev/standalone/
+COPY core/package.json /temp/dev/core/
+COPY core/src /temp/dev/core/src
+RUN cd /temp/dev/standalone && bun install
+
+# ── Install prod deps (without swagger) ───────────────────
+FROM base AS prod
+RUN mkdir -p /temp/prod/standalone /temp/prod/core
+COPY standalone/package.json standalone/bun.lock /temp/prod/standalone/
+COPY core/package.json /temp/prod/core/
+COPY core/src /temp/prod/core/src
+RUN sed -i '/"@elysiajs\/swagger"/d' /temp/prod/standalone/package.json
+RUN cd /temp/prod/standalone && rm -f bun.lock && bun install --production
+
+# ── Prepare source with patches ───────────────────────────
+FROM base AS prerelease
+COPY standalone/. .
+# Overwrite host node_modules (which has broken symlinks) with Docker-installed one
+COPY --from=install /temp/dev/standalone/node_modules node_modules
+# Apply all patches: swagger removal, BASE_PATH injection, ipdb auto-detection
+RUN bun run offline/scripts/apply-patches.js
+
+# ── Fetch widget + WASM assets from CDN at build time ─────
+FROM alpine:3.20 AS asset-fetcher
+ARG CAP_WIDGET_VERSION
+ARG CAP_WASM_VERSION
+RUN mkdir -p /assets && \
+    apk add --no-cache curl && \
+    curl -fsSL -o /assets/widget.js \
+      "https://cdn.jsdelivr.net/npm/@cap.js/widget@${CAP_WIDGET_VERSION}" && \
+    curl -fsSL -o /assets/floating.js \
+      "https://cdn.jsdelivr.net/npm/@cap.js/widget@${CAP_WIDGET_VERSION}/cap-floating.min.js" && \
+    curl -fsSL -o /assets/cap_wasm_bg.wasm \
+      "https://cdn.jsdelivr.net/npm/@cap.js/wasm@${CAP_WASM_VERSION}/browser/cap_wasm_bg.wasm" && \
+    curl -fsSL -o /assets/cap_wasm.js \
+      "https://cdn.jsdelivr.net/npm/@cap.js/wasm@${CAP_WASM_VERSION}/browser/cap_wasm.min.js" && \
+    echo "{\"widget\":\"${CAP_WIDGET_VERSION}\",\"wasm\":\"${CAP_WASM_VERSION}\"}" \
+      > /assets/versions.json
+
+# ── Fetch DB-IP geo databases ─────────────────────────────
+# CC-BY 4.0 license: https://db-ip.com/db/lite.php
+# Override with --build-arg GEO_DB_DATE=2026-04 if current month is not yet available.
+FROM alpine:3.20 AS geo-db-fetcher
+ARG GEO_DB_DATE
+RUN apk add --no-cache curl gzip
+RUN DATE=${GEO_DB_DATE:-$(date +%Y-%m)} && \
+    mkdir -p /geo-db && \
+    echo "Downloading DB-IP databases for $DATE..." && \
+    curl -fsSL "https://download.db-ip.com/free/dbip-country-lite-${DATE}.mmdb.gz" \
+      | gzip -dc > /geo-db/dbip-country.mmdb && \
+    curl -fsSL "https://download.db-ip.com/free/dbip-asn-lite-${DATE}.mmdb.gz" \
+      | gzip -dc > /geo-db/dbip-asn.mmdb && \
+    echo "Done. Sizes:" && ls -lh /geo-db/
+
+# ── Release ───────────────────────────────────────────────
+FROM base AS release
+COPY --from=prod /temp/prod/standalone/node_modules node_modules
+COPY --from=prod /temp/prod/core /temp/prod/core
+COPY --from=install /temp/dev/core /temp/dev/core
+COPY --from=prerelease /usr/src/app .
+COPY --from=asset-fetcher /assets /usr/src/app/baked-assets
+COPY --from=geo-db-fetcher /geo-db /usr/src/app/data
+WORKDIR /usr/src/app
+RUN chown -R bun:bun data && \
+    rm -rf offline
+EXPOSE 3000/tcp
+USER bun
+ENTRYPOINT [ "/usr/src/app/scripts/entrypoint.sh" ]

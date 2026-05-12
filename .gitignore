@@ -102,3 +102,5 @@ trycap
 # Compound Engineering local config
 .compound-engineering/*.local.yaml
 skills-lock.json
+cap-*.tar.gz
+*.jpg

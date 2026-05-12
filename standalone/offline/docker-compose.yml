@@ -1,0 +1,35 @@
+# Cap Offline — 生产环境 Docker Compose
+# 使用前请先复制 .env.example 为 .env 并填写配置。
+
+services:
+  cap:
+    image: cap-offline:${CAP_VERSION:-3.1.0}
+    container_name: cap
+    ports:
+      - "${CAP_PORT:-3000}:3000"
+    environment:
+      # ── 必填 ───────────────────────────────────────
+      ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY 未配置，请检查 .env 文件}
+
+      # ── Redis 集群 ─────────────────────────────────
+      REDIS_CLUSTER_URLS: ${REDIS_CLUSTER_URLS:?REDIS_CLUSTER_URLS 未配置，请检查 .env 文件}
+      REDIS_CLUSTER_PASSWORD: ${REDIS_CLUSTER_PASSWORD:-}
+      REDIS_CLUSTER_USERNAME: ${REDIS_CLUSTER_USERNAME:-}
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-cap:}
+
+      # ── Token 有效期 ───────────────────────────────
+      TOKEN_TTL_MS: ${TOKEN_TTL_MS:-}
+
+      # ── API 路径前缀 ───────────────────────────────
+      BASE_PATH: ${BASE_PATH:-/cap}
+
+      # ── 推荐配置 ───────────────────────────────────
+      RATELIMIT_IP_HEADER: ${RATELIMIT_IP_HEADER:-X-Forwarded-For}
+
+      # ── 安全固定值（请勿修改）────────────────────────
+      SHOW_ERRORS: "false"
+      DISABLE_ERROR_LOGGING: "false"
+      DEMO_MODE: "false"
+
+      SERVER_PORT: 3000
+    restart: unless-stopped
