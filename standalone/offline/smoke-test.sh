@@ -52,16 +52,16 @@ echo "════════════════════════�
 echo ""
 
 # ── Step 0: 启动本地 Redis 集群 ───────────────────────────
-info "[0/6] 启动本地 Redis 集群..."
+info "[0/8] 启动本地 Redis 集群..."
 bash "$SCRIPT_DIR/scripts/mock-redis-cluster.sh" start "$REDIS_CLUSTER_HOST"
 
 # ── Step 1: 启动容器 ──────────────────────────────────────
-info "[1/6] 启动测试容器..."
+info "[1/8] 启动测试容器..."
 cd "$SCRIPT_DIR"
 VERSION="$VERSION" docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT" up -d --force-recreate --wait 2>/dev/null
 
 # ── Step 2: 等待 Cap 服务就绪 ─────────────────────────────
-info "[2/6] 等待 Cap 服务就绪..."
+info "[2/8] 等待 Cap 服务就绪..."
 READY=false
 for i in $(seq 1 30); do
   if curl -sf "${CAP_URL}/cap/" > /dev/null 2>&1; then
@@ -80,7 +80,7 @@ else
 fi
 
 # ── Step 3: 测试离线静态资源 ──────────────────────────────
-info "[3/6] 测试离线静态资源..."
+info "[3/8] 测试离线静态资源..."
 ASSETS_OK=true
 for asset in widget.js floating.js cap_wasm.js; do
   HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "${CAP_URL}/cap/assets/${asset}" 2>/dev/null) || HTTP_CODE="000"
@@ -100,11 +100,44 @@ else
   ASSETS_OK=false
 fi
 
-# ── Step 4: 测试管理员登录 ────────────────────────────────
-info "[4/6] 测试管理员登录..."
+# ── Step 4: 测试前端静态资源 ──────────────────────────────
+info "[4/8] 测试前端静态资源 (BASE_PATH=/cap)..."
+FRONTEND_OK=true
+
+# 无需认证的资源（字体）
+for asset in assets/ibm-plex-sans.woff2 assets/lilex-regular.woff2; do
+  HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "${CAP_URL}/cap/public/${asset}" 2>/dev/null) || HTTP_CODE="000"
+  if [ "$HTTP_CODE" = "200" ]; then
+    pass "  ${asset} (${HTTP_CODE})"
+  else
+    fail "  ${asset} (${HTTP_CODE})"
+    FRONTEND_OK=false
+  fi
+done
+
+# 需要认证的资源：先登录获取 session cookie
 LOGIN_RESP=$(curl -sf -X POST "${CAP_URL}/cap/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"admin_key\":\"${ADMIN_KEY}\"}" 2>/dev/null) || LOGIN_RESP=""
+  -d "{\"admin_key\":\"${ADMIN_KEY}\"}" \
+  -c /tmp/cap-smoke-cookies.txt 2>/dev/null) || LOGIN_RESP=""
+
+if echo "$LOGIN_RESP" | grep -q '"success":true'; then
+  for asset in assets/style.css js/dashboard.js assets/chart.js@4.5.0.min.js; do
+    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" -b /tmp/cap-smoke-cookies.txt "${CAP_URL}/cap/public/${asset}" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+      pass "  ${asset} (${HTTP_CODE})"
+    else
+      fail "  ${asset} (${HTTP_CODE})"
+      FRONTEND_OK=false
+    fi
+  done
+else
+  fail "  无法登录以测试受保护的静态资源"
+  FRONTEND_OK=false
+fi
+
+# ── Step 5: 测试管理员登录 ────────────────────────────────
+info "[5/8] 测试管理员登录..."
 if echo "$LOGIN_RESP" | grep -q '"success":true'; then
   pass "管理员登录成功"
 else
@@ -112,8 +145,8 @@ else
   echo "  响应: $LOGIN_RESP"
 fi
 
-# ── Step 5: 测试 Challenge API ────────────────────────────
-info "[5/6] 测试 Challenge API..."
+# ── Step 6: 测试 Challenge API ────────────────────────────
+info "[6/8] 测试 Challenge API..."
 # 使用无效 siteKey，期望返回 404（证明路由正常工作）
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
   "${CAP_URL}/cap/nonexistent-sitekey/challenge" 2>/dev/null) || HTTP_CODE="000"
@@ -125,8 +158,57 @@ else
   fail "Challenge API 异常响应 (HTTP ${HTTP_CODE})"
 fi
 
-# ── Step 6: 检查 Geo DB 加载 ─────────────────────────────
-info "[6/6] 检查 Geo DB..."
+# ── Step 7: 检查前端页面路径正确性 ────────────────────────
+info "[7/8] 检查前端页面路径正确性..."
+
+# 辅助函数：下载到临时文件后搜索内容，避免大文件管道 broken pipe
+_tmpfile=""
+_fetch_and_grep() {
+  local url="$1"
+  local pattern="$2"
+  local cookie_args="${3:-}"
+  _tmpfile=$(mktemp)
+  if [ -n "$cookie_args" ]; then
+    curl -sf "$url" -b "$cookie_args" > "$_tmpfile" 2>/dev/null || true
+  else
+    curl -sf "$url" > "$_tmpfile" 2>/dev/null || true
+  fi
+  grep -q "$pattern" "$_tmpfile"
+  local rc=$?
+  rm -f "$_tmpfile"
+  return $rc
+}
+
+# 验证 login.html 使用相对路径而非绝对路径
+if _fetch_and_grep "${CAP_URL}/cap/" 'fetch("auth/login"'; then
+  pass "login.html 使用相对路径 fetch(\"auth/login\")"
+else
+  fail "login.html 仍使用绝对路径 (应为 fetch(\"auth/login\"))"
+fi
+
+# 验证 index.html 使用相对路径
+if _fetch_and_grep "${CAP_URL}/cap/" 'src="public/assets/chart.js@4.5.0.min.js"' /tmp/cap-smoke-cookies.txt; then
+  pass "index.html 使用相对路径加载 chart.js"
+else
+  fail "index.html 仍使用绝对路径加载 chart.js"
+fi
+
+# 验证 dashboard.js 使用相对 API 路径
+if _fetch_and_grep "${CAP_URL}/cap/public/js/dashboard.js" 'fetch("server/about")' /tmp/cap-smoke-cookies.txt; then
+  pass "dashboard.js 使用相对路径 fetch(\"server/about\")"
+else
+  fail "dashboard.js 仍使用绝对路径 (应为 fetch(\"server/about\"))"
+fi
+
+# 验证 style.css 使用相对字体路径
+if _fetch_and_grep "${CAP_URL}/cap/public/assets/style.css" 'url("ibm-plex-sans.woff2")' /tmp/cap-smoke-cookies.txt; then
+  pass "style.css 使用相对路径加载字体"
+else
+  fail "style.css 仍使用绝对路径加载字体"
+fi
+
+# ── Step 8: 检查 Geo DB 加载 ─────────────────────────────
+info "[8/8] 检查 Geo DB..."
 LOGS=$(docker compose -f docker-compose.test.yml -p "$COMPOSE_PROJECT" logs cap 2>/dev/null) || LOGS=""
 if echo "$LOGS" | grep -q "\[ipdb\]" 2>/dev/null; then
   pass "IP 地理数据库已加载"

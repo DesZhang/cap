@@ -76,6 +76,7 @@
 
     <script src="https://unpkg.com/@cap.js/widget@latest/cap.min.js"></script>
     <script>
+      const basePath = location.pathname.replace(/\/public\/.*$/, "") || "";
       const keyIdInput = document.getElementById("keyIdInput");
       const secretKeyInput = document.getElementById("secretKeyInput");
       const startButton = document.getElementById("startButton");
@@ -89,7 +90,7 @@
 
       async function validateToken(keyId, secretKey, token) {
         log(`\nValidating token...`);
-        const response = await fetch(`/${keyId}/siteverify`, {
+        const response = await fetch(`${basePath}/${keyId}/siteverify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ secret: secretKey, response: token }),
@@ -113,7 +114,7 @@
         const startTime = Date.now();
 
         cap?.widget?.remove();
-        cap = new Cap({ apiEndpoint: `/${keyId}/` });
+        cap = new Cap({ apiEndpoint: `${basePath}/${keyId}/` });
         cap.widget.style.display = "block";
 
         cap.addEventListener("progress", (e) => log(`Solving... ${e.detail.progress}%`));

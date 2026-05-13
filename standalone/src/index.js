@@ -108,7 +108,12 @@ new Elysia({
     };
   })
   .use(publicStatic)
-  .get("/", async ({ cookie }) => {
+  .get("/", async ({ cookie, redirect, request }) => {
+    const basePath = process.env.BASE_PATH || "";
+    const pathname = new URL(request.url).pathname;
+    if (basePath && basePath !== "/" && !pathname.endsWith("/")) {
+      return redirect(`${basePath}/`);
+    }
     if (isDemoMode()) return file("./public/index.html");
     return file(
       cookie.cap_authed?.value === "yes"

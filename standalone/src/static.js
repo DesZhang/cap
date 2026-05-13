@@ -17,10 +17,16 @@ const resolveSafePath = (rel) => {
   return resolved;
 };
 
+const BASE_PATH = process.env.BASE_PATH || "";
+
 export const publicStatic = new Elysia().get(
   "/public/*",
   async ({ cookie, set, request, redirect, headers }) => {
-    const rawPath = new URL(request.url).pathname.replace(/^\/public\/?/, "");
+    const pathname = new URL(request.url).pathname;
+    const publicPrefix = BASE_PATH ? `${BASE_PATH}/public` : "/public";
+    const rawPath = pathname.startsWith(publicPrefix)
+      ? pathname.slice(publicPrefix.length).replace(/^\//, "")
+      : pathname.replace(/^\/public\/?/, "");
     let rel;
     try {
       rel = decodeURIComponent(rawPath);
@@ -40,7 +46,7 @@ export const publicStatic = new Elysia().get(
 
     if (!allowUnauthed && !authed) {
       set.status = 401;
-      redirect("/");
+      redirect(BASE_PATH || "/");
       return { success: false, error: "Unauthorized" };
     }
 
