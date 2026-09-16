@@ -15,4 +15,5 @@ services:
       BASE_PATH: /cap
       SHOW_ERRORS: "true"
       HIDE_RATELIMIT_IP_WARNING: "true"
+      ENABLE_ASSETS_SERVER: "true"
     restart: "no"

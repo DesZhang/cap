@@ -154,6 +154,7 @@ docker run -d \
   -e "DISABLE_ERROR_LOGGING=false" \
   -e "DEMO_MODE=false" \
   -e "SERVER_PORT=$CAP_PORT" \
+  -e "ENABLE_ASSETS_SERVER=true" \
   cap-e2e:latest
 
 log "Waiting for Cap to be healthy..."

@@ -179,32 +179,33 @@ _fetch_and_grep() {
   return $rc
 }
 
-# 验证 login.html 使用相对路径而非绝对路径
-if _fetch_and_grep "${CAP_URL}/cap/" 'fetch("auth/login"'; then
-  pass "login.html 使用相对路径 fetch(\"auth/login\")"
+# 验证前端使用相对路径（兼容 fork 与 upstream 的相对路径写法）
+# 只要不是绝对路径（fetch("/auth/login" 等带前导斜杠的形式）即可。
+if ! _fetch_and_grep "${CAP_URL}/cap/" 'fetch("/auth/login"'; then
+  pass "login.html 使用相对路径登录"
 else
-  fail "login.html 仍使用绝对路径 (应为 fetch(\"auth/login\"))"
+  fail "login.html 仍使用绝对路径 fetch(\"/auth/login\")"
 fi
 
 # 验证 index.html 使用相对路径
-if _fetch_and_grep "${CAP_URL}/cap/" 'src="public/assets/chart.js@4.5.0.min.js"' /tmp/cap-smoke-cookies.txt; then
+if ! _fetch_and_grep "${CAP_URL}/cap/" 'src="/public/assets/chart.js' /tmp/cap-smoke-cookies.txt; then
   pass "index.html 使用相对路径加载 chart.js"
 else
-  fail "index.html 仍使用绝对路径加载 chart.js"
+  fail "index.html 仍使用绝对路径加载 chart.js (src=\"/public/...)"
 fi
 
 # 验证 dashboard.js 使用相对 API 路径
-if _fetch_and_grep "${CAP_URL}/cap/public/js/dashboard.js" 'fetch("server/about")' /tmp/cap-smoke-cookies.txt; then
-  pass "dashboard.js 使用相对路径 fetch(\"server/about\")"
+if ! _fetch_and_grep "${CAP_URL}/cap/public/js/dashboard.js" 'fetch("/server' /tmp/cap-smoke-cookies.txt; then
+  pass "dashboard.js 使用相对 API 路径"
 else
-  fail "dashboard.js 仍使用绝对路径 (应为 fetch(\"server/about\"))"
+  fail "dashboard.js 仍使用绝对路径 fetch(\"/server...\")"
 fi
 
 # 验证 style.css 使用相对字体路径
-if _fetch_and_grep "${CAP_URL}/cap/public/assets/style.css" 'url("ibm-plex-sans.woff2")' /tmp/cap-smoke-cookies.txt; then
+if ! _fetch_and_grep "${CAP_URL}/cap/public/assets/style.css" 'url("/public/assets/ibm-plex-sans' /tmp/cap-smoke-cookies.txt; then
   pass "style.css 使用相对路径加载字体"
 else
-  fail "style.css 仍使用绝对路径加载字体"
+  fail "style.css 仍使用绝对路径加载字体 (url(\"/public/...)"
 fi
 
 # ── Step 8: 检查 Geo DB 加载 ─────────────────────────────

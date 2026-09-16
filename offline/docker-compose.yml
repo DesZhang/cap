@@ -30,6 +30,7 @@ services:
       SHOW_ERRORS: "false"
       DISABLE_ERROR_LOGGING: "false"
       DEMO_MODE: "false"
+      ENABLE_ASSETS_SERVER: "true"
 
       SERVER_PORT: 3000
     restart: unless-stopped
