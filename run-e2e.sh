@@ -136,7 +136,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
   docker build \
     -t cap-e2e:latest \
     -f "$CAP_ROOT/standalone/Dockerfile" \
-    --build-arg CAP_WIDGET_VERSION=0.1.50 \
+    --build-arg CAP_WIDGET_VERSION=0.1.57 \
     --build-arg CAP_WASM_VERSION=0.0.7 \
     "$CAP_ROOT" 2>&1 | tail -3
   log "Docker image built"

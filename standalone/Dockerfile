@@ -16,7 +16,7 @@ COPY --from=install /temp/dev/standalone/node_modules node_modules
 COPY standalone/. .
 
 # ── Fetch widget + WASM assets from CDN at build time ──────
-ARG CAP_WIDGET_VERSION=0.1.50
+ARG CAP_WIDGET_VERSION=0.1.57
 ARG CAP_WASM_VERSION=0.0.7
 
 FROM alpine:3.20 AS asset-fetcher

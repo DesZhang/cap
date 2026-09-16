@@ -12,7 +12,7 @@
 # Build context: repository root (..)
 # Usage: docker build -f offline/Dockerfile.offline -t cap-offline:3.1.0 ..
 
-ARG CAP_WIDGET_VERSION=0.1.50
+ARG CAP_WIDGET_VERSION=0.1.57
 ARG CAP_WASM_VERSION=0.0.7
 ARG GEO_DB_DATE=
 

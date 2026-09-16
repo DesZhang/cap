@@ -6,7 +6,7 @@ services:
       args:
         # Widget and WASM versions fetched from jsdelivr during docker build.
         # Update these and rebuild to upgrade the widget.
-        CAP_WIDGET_VERSION: "0.1.50"
+        CAP_WIDGET_VERSION: "0.1.57"
         CAP_WASM_VERSION: "0.0.7"
     container_name: cap
     ports:

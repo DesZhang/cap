@@ -100,7 +100,7 @@ docker compose logs -f cap
 正常启动时会看到：
 ```
 [entrypoint] Loading baked assets into Redis...
-[load-assets] Loaded widget@0.1.50, wasm@0.0.7 into Redis
+[load-assets] Loaded widget@0.1.57, wasm@0.0.7 into Redis
 🧢 Cap running on http://0.0.0.0:3000
 ```
 
@@ -279,7 +279,7 @@ docker compose logs cap | grep "load-assets"
 
 正常应显示：
 ```
-[load-assets] Loaded widget@0.1.50, wasm@0.0.7 into Redis
+[load-assets] Loaded widget@0.1.57, wasm@0.0.7 into Redis
 ```
 
 ### IP 地理数据库未加载
