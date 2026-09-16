@@ -204,10 +204,10 @@ SECRET_KEY=$(echo "$KEY_RESPONSE" | python3 -c "import sys,json; d=json.load(sys
 log "Site key registered: $SITE_KEY"
 
 # 1d. Build backend (if not already built)
-BACKEND_JAR="$CAP_ROOT/backend/target/backend-0.0.1-SNAPSHOT.jar"
+BACKEND_JAR="$CAP_ROOT/e2e/fixtures/backend/target/backend-0.0.1-SNAPSHOT.jar"
 if [[ ! -f "$BACKEND_JAR" ]]; then
   log "Building backend..."
-  mvn -f "$CAP_ROOT/backend/pom.xml" package -DskipTests -q 2>&1 | tail -3
+  mvn -f "$CAP_ROOT/e2e/fixtures/backend/pom.xml" package -DskipTests -q 2>&1 | tail -3
   log "Backend built"
 fi
 
@@ -261,7 +261,7 @@ log "Backends are healthy"
 
 # 1g. Start frontend
 log "Starting frontend on port $FRONTEND_PORT..."
-cd "$CAP_ROOT/frontend"
+cd "$CAP_ROOT/e2e/fixtures/frontend"
 VITE_CAP_SITE_KEY="$SITE_KEY" npx vite --port "$FRONTEND_PORT" > /tmp/cap-e2e-frontend.log 2>&1 &
 echo $! > "$PID_DIR/frontend.pid"
 cd "$CAP_ROOT"

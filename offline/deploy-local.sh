@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_DIR="${REPO_ROOT}/cap-offline-local"
 ADMIN_KEY="${1:-correct-horse-battery-staple}"
 
@@ -35,7 +35,7 @@ fail()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
 info "查找离线包..."
 PACKAGE=$(ls -t "${REPO_ROOT}"/cap-offline-*.tar.gz 2>/dev/null | head -1)
 if [ -z "$PACKAGE" ]; then
-  fail "未找到 cap-offline-*.tar.gz，请先运行: bash standalone/offline/build-package.sh"
+  fail "未找到 cap-offline-*.tar.gz，请先运行: bash offline/build-package.sh"
 fi
 VERSION=$(basename "$PACKAGE" | sed 's/cap-offline-\(.*\)\.tar\.gz/\1/')
 pass "找到离线包: $(basename "$PACKAGE") (版本 ${VERSION})"

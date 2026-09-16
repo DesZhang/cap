@@ -7,10 +7,10 @@
 #   - BASE_PATH env var for configurable API prefix
 #   - IP DB auto-detection for pre-bundled .mmdb files
 #
-# All patches are applied at build time — source files are never modified.
+# Swagger removal, BASE_PATH prefix and IP DB auto-detection are fork source modifications (see FORK.md).
 #
 # Build context: repository root (..)
-# Usage: docker build -f standalone/offline/Dockerfile.offline -t cap-offline:3.1.0 ..
+# Usage: docker build -f offline/Dockerfile.offline -t cap-offline:3.1.0 ..
 
 ARG CAP_WIDGET_VERSION=0.1.50
 ARG CAP_WASM_VERSION=0.0.7
@@ -27,22 +27,19 @@ COPY core/package.json /temp/dev/core/
 COPY core/src /temp/dev/core/src
 RUN cd /temp/dev/standalone && bun install
 
-# ── Install prod deps (without swagger) ───────────────────
+# ── Install prod deps ───────────────────
 FROM base AS prod
 RUN mkdir -p /temp/prod/standalone /temp/prod/core
 COPY standalone/package.json standalone/bun.lock /temp/prod/standalone/
 COPY core/package.json /temp/prod/core/
 COPY core/src /temp/prod/core/src
-RUN sed -i '/"@elysiajs\/swagger"/d' /temp/prod/standalone/package.json
-RUN cd /temp/prod/standalone && rm -f bun.lock && bun install --production
+RUN cd /temp/prod/standalone && bun install --production
 
-# ── Prepare source with patches ───────────────────────────
+# ── Prepare source ───────────────────────────
 FROM base AS prerelease
 COPY standalone/. .
 # Overwrite host node_modules (which has broken symlinks) with Docker-installed one
 COPY --from=install /temp/dev/standalone/node_modules node_modules
-# Apply all patches: swagger removal, BASE_PATH injection, ipdb auto-detection
-RUN bun run offline/scripts/apply-patches.js
 
 # ── Fetch widget + WASM assets from CDN at build time ─────
 FROM alpine:3.20 AS asset-fetcher
@@ -85,8 +82,7 @@ COPY --from=prerelease /usr/src/app .
 COPY --from=asset-fetcher /assets /usr/src/app/baked-assets
 COPY --from=geo-db-fetcher /geo-db /usr/src/app/data
 WORKDIR /usr/src/app
-RUN chown -R bun:bun data && \
-    rm -rf offline
+RUN chown -R bun:bun data
 EXPOSE 3000/tcp
 USER bun
 ENTRYPOINT [ "/usr/src/app/scripts/entrypoint.sh" ]

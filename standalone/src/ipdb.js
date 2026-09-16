@@ -45,7 +45,26 @@ export async function loadIPDB() {
     ipdbSettings = null;
   }
 
-  if (!ipdbSettings?.mode || ipdbSettings.mode === "ipinfo") return;
+  if (!ipdbSettings?.mode || ipdbSettings.mode === "ipinfo") {
+    // First start with no dashboard settings: auto-detect pre-bundled .mmdb
+    // files (offline image) and persist mode "dbip" so admin overrides win later.
+    if (existsSync(COUNTRY_PATH) || existsSync(ASN_PATH)) {
+      console.log(
+        "[ipdb] No settings in Redis — auto-detecting pre-bundled .mmdb files",
+      );
+      ipdbSettings = {
+        mode: "dbip",
+        maxmindKey: "",
+        ipinfoToken: "",
+        lastUpdated: new Date().toISOString(),
+      };
+      try {
+        await db.set("settings:ipdb", JSON.stringify(ipdbSettings));
+      } catch {}
+    } else {
+      return;
+    }
+  }
 
   const filesExist = existsSync(COUNTRY_PATH) || existsSync(ASN_PATH);
 

@@ -1,4 +1,3 @@
-import { swagger } from "@elysiajs/swagger";
 import { Elysia, file } from "elysia";
 import { assetsServer } from "./assets.js";
 import { auth } from "./auth.js";
@@ -19,52 +18,12 @@ const serverPort = process.env.SERVER_PORT || 3000;
 const serverHostname = process.env.SERVER_HOSTNAME || "0.0.0.0";
 
 new Elysia({
+  prefix: process.env.BASE_PATH || "",
   serve: {
     port: serverPort,
     hostname: serverHostname,
   },
 })
-  .use(
-    swagger({
-      scalarConfig: {
-        customCss: `.section-header-wrapper .section-header.tight { margin-top: 10px; }`,
-      },
-      exclude: ["/", "/auth/login"],
-      documentation: {
-        tags: [
-          {
-            name: "Keys",
-            description:
-              "Managing, creating and viewing keys. Requires API or session token",
-          },
-          {
-            name: "Settings",
-            description:
-              "Managing sessions, API keys, and other settings. Requires API or session token",
-          },
-          {
-            name: "Challenges",
-            description: "Creating and managing challenges and tokens",
-          },
-          {
-            name: "Assets",
-            description: "Reading static assets from the assets server",
-          },
-        ],
-        info: {
-          title: "Cap Standalone",
-          version: "3.0.1",
-          description:
-            "API endpoints for Cap Standalone. Both Keys and Settings endpoints require an API key or session token.\n\n[Learn more](https://trycap.dev)",
-        },
-        securitySchemes: {
-          apiKey: {
-            type: "http",
-          },
-        },
-      },
-    }),
-  )
   .onBeforeHandle(({ set }) => {
     set.headers["X-Powered-By"] = "Cap Standalone";
   })

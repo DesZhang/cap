@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERSION="${VERSION:-$(grep '"version"' "$SCRIPT_DIR/../../package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')}"
+VERSION="${VERSION:-$(grep '"version"' "$SCRIPT_DIR/../standalone/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')}"
 TEST_PORT="${TEST_PORT:-13000}"
 CAP_URL="http://localhost:${TEST_PORT}"
 ADMIN_KEY="test_admin_key_for_smoke"

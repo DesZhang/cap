@@ -12,8 +12,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-STANDALONE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+STANDALONE_DIR="$(cd "$SCRIPT_DIR/../standalone" && pwd)"
 
 # ── 参数解析 ──────────────────────────────────────────────
 SKIP_TEST=false
@@ -42,31 +42,6 @@ echo "  版本: ${VERSION}"
 echo "  镜像: ${IMAGE_TAG}"
 echo "══════════════════════════════════════════"
 echo ""
-
-# ── 构建警告 ──────────────────────────────────────────────
-echo "⚠️  维护提醒:"
-echo ""
-echo "  本构建通过 sed/regex 对上游源码进行补丁，以下情况需要手动检查:"
-echo ""
-echo "  1. Swagger 清除"
-echo "     - 上游可能将 swagger 引入到其他文件中"
-echo "     - 当前仅处理 standalone/src/index.js 和 package.json"
-echo "     - 检查: grep -r 'swagger' standalone/src/"
-echo ""
-echo "  2. BASE_PATH 注入"
-echo "     - 依赖 index.js 中 Elysia 构造函数的格式"
-echo "     - 如果上游重构了初始化逻辑，需要调整 apply-patches.js"
-echo ""
-echo "  3. IP DB 自动检测"
-echo "     - 依赖 ipdb.js 中 loadIPDB() 的早期返回逻辑"
-echo "     - 如果上游修改了该函数的流程，需要调整 apply-patches.js"
-echo ""
-read -p "继续构建? [Y/n] " -n 1 -r CONFIRM
-echo ""
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]] && [ -n "$CONFIRM" ]; then
-  echo "已取消"
-  exit 0
-fi
 
 # ── 构建镜像 ──────────────────────────────────────────────
 echo ""
@@ -119,7 +94,7 @@ cp "$SCRIPT_DIR/deploy-guide.md" "$OUTPUT_DIR/deploy-guide.md"
 cp "$SCRIPT_DIR/integration-guide.md" "$OUTPUT_DIR/integration-guide.md"
 
 # 写入版本到 docker-compose.yml 中的默认版本
-sed -i.bak "s/CAP_VERSION:-3.1.0/CAP_VERSION:-${VERSION}/g" "$OUTPUT_DIR/docker-compose.yml" && rm -f "$OUTPUT_DIR/docker-compose.yml.bak"
+sed -i.bak -E "s/CAP_VERSION:-[0-9][^]}]*/CAP_VERSION:-${VERSION}/g" "$OUTPUT_DIR/docker-compose.yml" && rm -f "$OUTPUT_DIR/docker-compose.yml.bak"
 
 # 复制 LICENSE
 if [ -f "$REPO_ROOT/LICENSE" ]; then
