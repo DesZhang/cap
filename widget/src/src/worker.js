@@ -1,4 +1,8 @@
 (() => {
+  const wlog = (method, ...args) => {
+    if (!self.CAP_SILENT) console[method]("[cap worker]", ...args);
+  };
+
   const solveFallback = async ({ salt, target }) => {
     let nonce = 0;
     const batchSize = 50000;
@@ -15,8 +19,7 @@
       targetBytes[k] = parseInt(paddedTarget.substring(k * 2, k * 2 + 2), 16);
     }
 
-    const partialMask =
-      remainingBits > 0 ? (0xff << (8 - remainingBits)) & 0xff : 0;
+    const partialMask = remainingBits > 0 ? (0xff << (8 - remainingBits)) & 0xff : 0;
 
     while (true) {
       try {
@@ -38,10 +41,7 @@
           }
 
           if (matches && remainingBits > 0) {
-            if (
-              (hashBytes[fullBytes] & partialMask) !==
-              (targetBytes[fullBytes] & partialMask)
-            ) {
+            if ((hashBytes[fullBytes] & partialMask) !== (targetBytes[fullBytes] & partialMask)) {
               matches = false;
             }
           }
@@ -54,7 +54,7 @@
           nonce++;
         }
       } catch (error) {
-        console.error("[cap worker]", error);
+        wlog("error","fallback solver crashed:", error.message || error);
         self.postMessage({
           found: false,
           error: error.message,
@@ -64,16 +64,30 @@
     }
   };
 
-  if (
-    typeof WebAssembly !== "object" ||
-    typeof WebAssembly?.instantiate !== "function"
-  ) {
-    console.warn(
-      "[cap worker] wasm not supported, falling back to alternative solver. this will be significantly slower.",
-    );
+  const solveRsw = (data) => {
+    const N = BigInt("0x" + data.N);
+    let y = BigInt("0x" + data.x);
+    const t = data.t | 0;
+    const chunk = Math.max(64, Math.floor(t / 50));
+    const t0 = performance.now();
+    for (let i = 0; i < t; i += chunk) {
+      const end = Math.min(t, i + chunk);
+      for (let j = i; j < end; j++) y = (y * y) % N;
+      if (end < t) self.postMessage({ progress: end / t });
+    }
+    self.postMessage({
+      found: true,
+      y: y.toString(16),
+      durationMs: (performance.now() - t0).toFixed(2),
+    });
+  };
 
-    self.onmessage = async ({ data: { salt, target } }) => {
-      return solveFallback({ salt, target });
+  if (typeof WebAssembly !== "object" || typeof WebAssembly?.instantiate !== "function") {
+    wlog("warn","WebAssembly unavailable, using JS fallback solver (significantly slower)");
+
+    self.onmessage = async ({ data }) => {
+      if (data?.kind === "rsw") return solveRsw(data);
+      return solveFallback({ salt: data.salt, target: data.target });
     };
 
     return;
@@ -88,10 +102,7 @@
       let cachedUint8ArrayMemory = null;
 
       const getMemory = () => {
-        if (
-          cachedUint8ArrayMemory === null ||
-          cachedUint8ArrayMemory.byteLength === 0
-        ) {
+        if (cachedUint8ArrayMemory === null || cachedUint8ArrayMemory.byteLength === 0) {
           cachedUint8ArrayMemory = new Uint8Array(wasm.memory.buffer);
         }
         return cachedUint8ArrayMemory;
@@ -153,49 +164,33 @@
       if (wasm.__wbindgen_start) wasm.__wbindgen_start();
 
       solve_pow_function = (salt, target) => {
-        const saltPtr = passStringToWasm(
-          salt,
-          wasm.__wbindgen_malloc,
-          wasm.__wbindgen_realloc,
-        );
+        const saltPtr = passStringToWasm(salt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const saltLen = WASM_VECTOR_LEN;
-        const targetPtr = passStringToWasm(
-          target,
-          wasm.__wbindgen_malloc,
-          wasm.__wbindgen_realloc,
-        );
+        const targetPtr = passStringToWasm(target, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const targetLen = WASM_VECTOR_LEN;
-        return BigInt.asUintN(
-          64,
-          wasm.solve_pow(saltPtr, saltLen, targetPtr, targetLen),
-        );
+        return BigInt.asUintN(64, wasm.solve_pow(saltPtr, saltLen, targetPtr, targetLen));
       };
 
       return true;
     } catch (e) {
-      console.error("[cap worker] failed to init wasm from module:", e);
+      wlog("error","wasm init failed:", e.message || e);
       return false;
     }
   };
 
-  self.onmessage = async ({ data: { salt, target, wasmModule } }) => {
-    if (
-      wasmModule instanceof WebAssembly.Module &&
-      solve_pow_function === null
-    ) {
+  self.onmessage = async ({ data }) => {
+    if (data?.kind === "rsw") return solveRsw(data);
+    const { salt, target, wasmModule } = data;
+    if (wasmModule instanceof WebAssembly.Module && solve_pow_function === null) {
       const ok = initFromModule(wasmModule);
       if (!ok) {
-        console.warn(
-          "[cap worker] wasm init failed, falling back to JS solver.",
-        );
+        wlog("warn","wasm init failed, falling back to JS solver");
         return solveFallback({ salt, target });
       }
     }
 
     if (solve_pow_function === null) {
-      console.warn(
-        "[cap worker] no wasm module provided, falling back to JS solver.",
-      );
+      wlog("warn","no wasm module provided, falling back to JS solver");
       return solveFallback({ salt, target });
     }
 
@@ -210,7 +205,7 @@
         durationMs: (endTime - startTime).toFixed(2),
       });
     } catch (error) {
-      console.error("[cap worker]", error);
+      wlog("error","solve_pow threw:", error.message || error);
 
       self.postMessage({
         found: false,

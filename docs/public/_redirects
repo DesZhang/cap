@@ -1,9 +1,8 @@
+/railway                 https://railway.com/deploy/cap-1?referralCode=93HYBZ&utm_medium=integration&utm_source=template&utm_campaign=generic   302
 /guide.html              /guide/                          301
 /guide/quickstart        /guide/                          301
 /guide/quickstart.html   /guide/                          301
 /guide/philosophy.html   /guide/effectiveness.html        301
 /guide/verify.html       /guide/#_3-verifying-tokens      301
 /guide/self-hosting.html /guide/standalone/               301
-/guide/invisible.html    /guide/floating.html             301
-/guide/widget            /guide/widget.html               301
-/guide/widget/           /guide/widget.html               301
+/guide/invisible.html    /guide/programmatic.html         301

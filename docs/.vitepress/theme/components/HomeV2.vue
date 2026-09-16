@@ -1,6 +1,15 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { useData } from "vitepress";
 import VPNavBarSearch from "vitepress/dist/client/theme-default/components/VPNavBarSearch.vue";
+import VPNavBarTranslations from "vitepress/dist/client/theme-default/components/VPNavBarTranslations.vue";
+import { createVortex } from "../vortex/index.js";
+import FooterGlow from "./FooterGlow.vue";
+import { homeV2Strings } from "./homeV2.strings.js";
+
+const { localeIndex } = useData();
+const t = computed(() => homeV2Strings[localeIndex.value] ?? homeV2Strings.en);
+const lp = computed(() => (localeIndex.value === "root" ? "" : `/${localeIndex.value}`));
 
 const fromWidget = ref(false);
 const fromWidgetHost = ref("");
@@ -16,33 +25,22 @@ function initFromWidgetBanner() {
     }
     fromWidget.value = true;
     if (typeof window.plausible === "function") {
-      window.plausible("widget_banner_shown", { props: { host: fromWidgetHost.value || "(unknown)" } });
+      window.plausible("widget_banner_shown", {
+        props: { host: fromWidgetHost.value || "(unknown)" },
+      });
     }
   } catch {}
 }
 
 function dismissWidgetBanner() {
   fromWidget.value = false;
-  try { sessionStorage.setItem("cap-widget-banner-dismissed", "1"); } catch {}
+  try {
+    sessionStorage.setItem("cap-widget-banner-dismissed", "1");
+  } catch {}
   if (typeof window.plausible === "function") {
     window.plausible("widget_banner_dismiss");
   }
 }
-
-const SNIPPETS = {
-  html:
-    `<!-- drop in anywhere -->\n<scr` +
-    `ipt src="https://cdn.jsdelivr.net/npm/cap-widget"></scr` +
-    `ipt>\n\n<cap-widget\n  data-cap-api-endpoint="https://your.server/<site-key>/">\n</cap-widget>`,
-  react: `import "cap-widget";\n\n<cap-widget
-  data-cap-api-endpoint="https://your.server/<site-key>/"
-  onsolve={(e) => console.log("token:", e.detail.token)}
-  onprogress={(e) => console.log(e.detail.progress)}
-  onerror={(e) => console.error(e.detail.message)}
-/>`,
-  docker: `# self-host in one command\ndocker run -p 3000:3000 \\\n  -e ADMIN_KEY=$(openssl rand -hex 32) \\\n  tiago2/standalone:latest\n\n# includes analytics + multi-site-key support`,
-  verify: `// server-side\nconst res = await fetch("https://your.server/<site_key>/siteverify", {\n  method: "POST",\n  body: JSON.stringify({ secret, response: token })\n});\nconst { success } = await res.json();`,
-};
 
 const cleanups = [];
 
@@ -50,119 +48,34 @@ function registerCleanup(fn) {
   cleanups.push(fn);
 }
 
-function initTabs() {
-  const tabEls = Array.from(document.querySelectorAll("#homev2 #tabs button[data-tab]"));
-  const tabIndicator = document.querySelector("#homev2 #tabs .tab-indicator");
-  let currentSnippet = "html";
+const AGENT_PROMPT =
+  "Fetch https://trycap.dev/prompt.md and follow it to add Cap, a self-hosted open-source CAPTCHA, to my project.";
 
-  const KEYWORDS = new Set([
-    "const", "let", "var", "import", "export", "from", "await", "new", "return",
-    "async", "function", "if", "else", "for", "while", "try", "catch", "throw",
-    "true", "false", "null", "undefined", "void", "typeof", "in", "of",
-  ]);
-  const BUILTINS = new Set(["fetch", "JSON", "console", "document", "window", "Math", "Promise"]);
+const promptCopied = ref(false);
+let promptCopiedTimer = 0;
 
-  function renderCode(key) {
-    const el = document.getElementById("homev2-code");
-    if (!el) return;
-    const text = SNIPPETS[key];
-    const esc = text.replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m]);
-    const tokenRe = new RegExp(
-      [
-        "(&lt;!--[\\s\\S]*?--&gt;)",
-        "(\\/\\/[^\\n]*)",
-        "(#[^\\n]*)",
-        "(\"[^\"\\n]*\"|`[^`]*`)",
-        "(&lt;\\/?[a-zA-Z][\\w-]*)",
-        "([a-zA-Z][\\w-]*)(?==)",
-        "\\b([A-Za-z_$][\\w$]*)\\b",
-        "\\b(\\d+(?:\\.\\d+)?)\\b",
-      ].join("|"),
-      "g",
-    );
-    const painted = esc.replace(
-      tokenRe,
-      (m, htmlC, slashC, hashC, str, tag, attr, word, num) => {
-        if (htmlC) return `<span class="c">${htmlC}</span>`;
-        if (slashC) return `<span class="c">${slashC}</span>`;
-        if (hashC) return `<span class="c">${hashC}</span>`;
-        if (str) return `<span class="s">${str}</span>`;
-        if (tag) return `<span class="t">${tag}</span>`;
-        if (attr) return `<span class="a">${attr}</span>`;
-        if (word) {
-          if (KEYWORDS.has(word)) return `<span class="k">${word}</span>`;
-          if (BUILTINS.has(word)) return `<span class="p">${word}</span>`;
-          return word;
-        }
-        if (num) return `<span class="n">${num}</span>`;
-        return m;
-      },
-    );
-    el.innerHTML = painted;
-    currentSnippet = key;
-  }
-
-  function positionIndicator(btn) {
-    if (!tabIndicator || !btn) return;
-    tabIndicator.style.width = btn.offsetWidth + "px";
-    tabIndicator.style.transform = `translateX(${btn.offsetLeft}px)`;
-  }
-
-  const handlers = [];
-  tabEls.forEach((b) => {
-    const handler = () => {
-      tabEls.forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      renderCode(b.dataset.tab);
-      positionIndicator(b);
-      try {
-        if (typeof window !== "undefined" && typeof window.plausible === "function") {
-          window.plausible("install_tab_click", { props: { tab: b.dataset.tab } });
-        }
-      } catch {}
-    };
-    b.addEventListener("click", handler);
-    handlers.push([b, handler]);
-  });
-
-  renderCode("html");
-  requestAnimationFrame(() => positionIndicator(tabEls.find((b) => b.classList.contains("active"))));
-
-  const onResize = () => {
-    const active = tabEls.find((b) => b.classList.contains("active"));
-    positionIndicator(active);
-  };
-  window.addEventListener("resize", onResize);
-
-  const copyBtn = document.getElementById("homev2-copy-btn");
-  let copyTimer;
-  const onCopy = async () => {
+async function copyAgentPrompt() {
+  try {
+    await navigator.clipboard.writeText(AGENT_PROMPT);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = AGENT_PROMPT;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.append(ta);
+    ta.select();
     try {
-      await navigator.clipboard.writeText(SNIPPETS[currentSnippet]);
-      copyBtn.classList.add("copied");
-      copyBtn.querySelector(".copy-label").textContent = "Copied";
-      try {
-        if (typeof window !== "undefined" && typeof window.plausible === "function") {
-          window.plausible("install_snippet_copy", { props: { tab: currentSnippet } });
-        }
-      } catch {}
-      clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => {
-        copyBtn.classList.remove("copied");
-        copyBtn.querySelector(".copy-label").textContent = "Copy";
-      }, 1600);
-    } catch {
-      copyBtn.querySelector(".copy-label").textContent = "Failed";
-    }
-  };
-  if (copyBtn) copyBtn.addEventListener("click", onCopy);
-
-  registerCleanup(() => {
-    handlers.forEach(([b, h]) => b.removeEventListener("click", h));
-    window.removeEventListener("resize", onResize);
-    if (copyBtn) copyBtn.removeEventListener("click", onCopy);
-    clearTimeout(copyTimer);
-  });
+      document.execCommand("copy");
+    } catch {}
+    ta.remove();
+  }
+  promptCopied.value = true;
+  clearTimeout(promptCopiedTimer);
+  promptCopiedTimer = setTimeout(() => {
+    promptCopied.value = false;
+  }, 2000);
+  track("copy_agent_prompt");
 }
 
 async function loadStats() {
@@ -175,7 +88,9 @@ async function loadStats() {
     const json = await res.json();
     const hits = json[0]?.hits;
     if (!hits) return;
-    const dates = Object.entries(hits.dates).sort(([a], [b]) => (a < b ? -1 : 1));
+    const dates = Object.entries(hits.dates).sort(([a], [b]) =>
+      a < b ? -1 : 1,
+    );
     const total = hits.total;
 
     const fmtDate = (s) =>
@@ -189,11 +104,17 @@ async function loadStats() {
     const values = chartDates.map(([, v]) => v);
     const peak = values.reduce((a, b) => Math.max(a, b), 0);
 
-    document.getElementById("homev2-stats-from").textContent = fmtDate(chartDates[0][0]);
-    document.getElementById("homev2-stats-to").textContent = fmtDate(chartDates[chartDates.length - 1][0]);
+    document.getElementById("homev2-stats-from").textContent = fmtDate(
+      chartDates[0][0],
+    );
+    document.getElementById("homev2-stats-to").textContent = fmtDate(
+      chartDates[chartDates.length - 1][0],
+    );
 
     const svg = document.getElementById("homev2-stats-spark");
-    const W = 600, H = 40, pad = 2;
+    const W = 600,
+      H = 40,
+      pad = 2;
     const innerW = W - pad * 2;
     const innerH = H - pad * 2;
     const step = innerW / Math.max(1, values.length - 1);
@@ -201,7 +122,9 @@ async function loadStats() {
       pad + i * step,
       pad + innerH - (v / (peak || 1)) * innerH,
     ]);
-    const linePath = pts.map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`)).join(" ");
+    const linePath = pts
+      .map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`))
+      .join(" ");
     const areaPath =
       `M${pad},${pad + innerH} ` +
       pts.map(([x, y]) => `L${x},${y}`).join(" ") +
@@ -330,47 +253,42 @@ function initLiveArchitecture() {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) return;
 
-  const rate = document.getElementById("homev2-pow-rate");
-  const target = document.getElementById("homev2-pow-target");
-  const hashes = Array.from(document.querySelectorAll("#homev2 .hash-scroller .track span"));
-  const probes = Array.from(document.querySelectorAll("#homev2 .probe-log .pt"));
   const ids = [];
+  const variants = [
+    "0x0000ffff…",
+    "0x0000fffe…",
+    "0x0000fff8…",
+    "0x0000fffd…",
+    "0x00010000…",
+  ];
 
-  if (rate) {
-    ids.push(setInterval(() => {
-      const r = 2.28 + Math.random() * 0.22;
-      rate.textContent = r.toFixed(2) + "M";
-    }, 360));
-  }
+  document.querySelectorAll("#homev2 .how-card .kv-rate").forEach((el, i) => {
+    ids.push(
+      setInterval(
+        () => {
+          el.textContent = (2.18 + Math.random() * 0.4).toFixed(2) + "M";
+        },
+        280 + i * 90,
+      ),
+    );
+  });
 
-  if (target) {
-    const variants = [
-      "0x0000ffff…",
-      "0x0000fffe…",
-      "0x0000fff8…",
-      "0x0000fffd…",
-      "0x00010000…",
-    ];
-    let i = 0;
-    ids.push(setInterval(() => {
-      i = (i + 1) % variants.length;
-      target.textContent = variants[i];
-    }, 5200));
-  }
+  document.querySelectorAll("#homev2 .how-card .kv-target").forEach((el, i) => {
+    let ti = i % variants.length;
+    ids.push(
+      setInterval(
+        () => {
+          ti = (ti + 1) % variants.length;
+          el.textContent = variants[ti];
+        },
+        4200 + i * 760,
+      ),
+    );
+  });
 
-  const flashMatch = () => {
-    if (!hashes.length) return;
-    const idx = Math.floor(Math.random() * hashes.length);
-    hashes[idx].classList.add("match");
-    setTimeout(() => hashes[idx].classList.remove("match"), 520);
-  };
-
-  if (hashes.length) {
-    ids.push(setInterval(() => {
-      if (Math.random() < 0.7) flashMatch();
-    }, 1400));
-  }
-
+  const probes = Array.from(
+    document.querySelectorAll("#homev2 .probe-log .pt"),
+  );
   let probeLoopActive = true;
   if (probes.length) {
     const defs = [
@@ -384,19 +302,22 @@ function initLiveArchitecture() {
       while (probeLoopActive) {
         for (let i = 0; i < probes.length; i++) {
           if (!probeLoopActive) return;
-          const p = probes[i];
+          const pr = probes[i];
           const d = defs[i];
-          p.classList.remove("ok");
-          p.classList.add("running");
-          p.textContent = "…";
+          pr.classList.remove("ok");
+          pr.classList.add("running");
+          pr.textContent = "…";
           await wait(260 + Math.random() * 140);
-          p.classList.remove("running");
+          pr.classList.remove("running");
           if (d.check) {
-            p.textContent = "✓";
-            p.classList.add("ok");
+            pr.textContent = "✓";
+            pr.classList.add("ok");
           } else {
-            const v = Math.max(1, d.base + Math.floor((Math.random() - 0.5) * d.jitter * 2));
-            p.textContent = `${v}ms`;
+            const v = Math.max(
+              1,
+              d.base + Math.floor((Math.random() - 0.5) * d.jitter * 2),
+            );
+            pr.textContent = `${v}ms`;
           }
           await wait(140 + Math.random() * 100);
         }
@@ -411,13 +332,31 @@ function initLiveArchitecture() {
     probeLoopActive = false;
   });
 }
-
 function track(name, props) {
   try {
-    if (typeof window !== "undefined" && typeof window.plausible === "function") {
-      window.plausible(name, props ? { props } : undefined);
-    }
+    if (typeof window === "undefined" || typeof window.plausible !== "function")
+      return;
+    window.plausible(name, props ? { props } : undefined);
   } catch {}
+}
+
+function initTrustView() {
+  const el = document.querySelector("#homev2 .trust-zone");
+  if (!el || typeof IntersectionObserver === "undefined") return;
+  let fired = false;
+  const io = new IntersectionObserver(
+    (entries) => {
+      if (fired) return;
+      if (entries.some((e) => e.isIntersecting)) {
+        fired = true;
+        io.disconnect();
+        track("trust_view");
+      }
+    },
+    { threshold: 0.6 },
+  );
+  io.observe(el);
+  registerCleanup(() => io.disconnect());
 }
 
 function initCtaTracking() {
@@ -432,17 +371,40 @@ function initCtaTracking() {
     el.addEventListener("click", handler);
     handlers.push([el, handler]);
   });
-  registerCleanup(() => handlers.forEach(([el, h]) => el.removeEventListener("click", h)));
+  registerCleanup(() =>
+    handlers.forEach(([el, h]) => el.removeEventListener("click", h)),
+  );
+}
+
+function initCtaBlockView() {
+  const el = document.querySelector("#homev2 .cta-block");
+  if (!el || typeof IntersectionObserver === "undefined") return;
+  let fired = false;
+  const io = new IntersectionObserver(
+    (entries) => {
+      if (fired) return;
+      if (entries.some((e) => e.isIntersecting)) {
+        fired = true;
+        io.disconnect();
+        track("cta_block_view");
+      }
+    },
+    { threshold: 0.4 },
+  );
+  io.observe(el);
+  registerCleanup(() => io.disconnect());
 }
 
 async function loadGithubStars() {
-  const el = document.getElementById("homev2-gh-stars");
-  if (!el) return;
+  const els = document.querySelectorAll(".homev2-gh-stars");
+  if (!els.length) return;
+  const write = (v) =>
+    els.forEach((el) => {
+      el.textContent = v;
+    });
   try {
     const cached = sessionStorage.getItem("cap-gh-stars");
-    if (cached) {
-      el.textContent = cached;
-    }
+    if (cached) write(cached);
     const res = await fetch("https://api.github.com/repos/tiagozip/cap", {
       headers: { Accept: "application/vnd.github+json" },
     });
@@ -451,26 +413,163 @@ async function loadGithubStars() {
     const n = data.stargazers_count;
     if (typeof n !== "number") return;
     const formatted = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-    el.textContent = formatted;
+    write(formatted);
     sessionStorage.setItem("cap-gh-stars", formatted);
   } catch {}
+}
+
+function initSizeBars() {
+  const root = document.querySelector("#homev2 #speed .sizebars");
+  if (!root) return;
+  const bars = Array.from(root.querySelectorAll(".sizebar"));
+  if (!bars.length) return;
+  const data = bars.map((bar) => {
+    const fill = bar.querySelector(".sb-fill");
+    const num = bar.querySelector(".sb-num");
+    return {
+      fill,
+      num,
+      width: fill ? fill.style.width || "0%" : "0%",
+      value: num ? parseInt(num.textContent, 10) || 0 : 0,
+    };
+  });
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  data.forEach((d) => {
+    if (d.fill) d.fill.style.width = "0%";
+    if (d.num) d.num.textContent = "0";
+  });
+  const timeouts = [];
+  let started = false;
+  const run = () => {
+    if (started) return;
+    started = true;
+    data.forEach((d, i) => {
+      const t = setTimeout(() => {
+        if (d.fill) {
+          d.fill.style.transition = "width 1s cubic-bezier(0.22, 1, 0.36, 1)";
+          d.fill.style.width = d.width;
+        }
+        const dur = 1000;
+        const start = performance.now();
+        const tick = (now) => {
+          const p = Math.min(1, (now - start) / dur);
+          const eased = 1 - Math.pow(1 - p, 3);
+          if (d.num) d.num.textContent = Math.round(d.value * eased).toString();
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, i * 150);
+      timeouts.push(t);
+    });
+  };
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          io.disconnect();
+          run();
+        }
+      });
+    },
+    { threshold: 0.35 },
+  );
+  io.observe(root);
+  registerCleanup(() => {
+    io.disconnect();
+    timeouts.forEach(clearTimeout);
+  });
+}
+
+function initVortex() {
+  const main = document.querySelector("#homev2 main");
+  const canvas = document.getElementById("homev2-vortex");
+  const topAnchor = document.querySelector("#homev2 .hero-copy .actions");
+  const bottomAnchor = document.querySelector("#homev2 .dash-frame");
+  if (!main || !canvas || !topAnchor || !bottomAnchor) return;
+
+  const state = {
+    mode: "ascii",
+    twistMode: "vortex",
+    fade: "both",
+    ink: "#89b4fa",
+    opacity: 0.31,
+    aberration: 0,
+    scanlines: 1,
+    curvature: 0.15,
+    twistRate: 0.1,
+    cellPx: 13,
+    topOffset: 0,
+    bottomOffset: 0,
+    fadeFrom: 0,
+    fadeTo: 0.3,
+    tailAt: 0.7,
+  };
+
+  let band = 0;
+
+  const layout = () => {
+    const mr = main.getBoundingClientRect();
+    const top =
+      topAnchor.getBoundingClientRect().bottom - mr.top + state.topOffset;
+    const bottom =
+      bottomAnchor.getBoundingClientRect().bottom - mr.top + state.bottomOffset;
+    band = Math.max(0, bottom - top);
+    canvas.style.top = `${top}px`;
+    canvas.style.height = `${band}px`;
+    canvas.style.left = `${-mr.left}px`;
+    canvas.style.width = `${document.documentElement.clientWidth}px`;
+    canvas.style.visibility = band < 56 ? "hidden" : "visible";
+  };
+
+  layout();
+
+  const measure = (rect) => ({
+    fadeTop: rect.height * state.fadeFrom,
+    fadeEnd: rect.height * Math.max(state.fadeFrom + 0.01, state.fadeTo),
+    tailStart: rect.height * state.tailAt,
+    tailEnd: rect.height,
+    clip: rect.height,
+  });
+
+  let vortex = createVortex(canvas, { ...state, measure });
+  if (!vortex) {
+    canvas.style.display = "none";
+    return;
+  }
+  canvas.classList.add("is-live");
+
+  const ro = new ResizeObserver(layout);
+  ro.observe(main);
+  window.addEventListener("resize", layout, { passive: true });
+
+  registerCleanup(() => {
+    ro.disconnect();
+    window.removeEventListener("resize", layout);
+    vortex.destroy();
+  });
 }
 
 onMounted(() => {
   document.documentElement.classList.add("home-v2-active");
   initFromWidgetBanner();
-  initTabs();
   loadStats();
   initCountUp();
   initLiveArchitecture();
   initCtaTracking();
+  initCtaBlockView();
+  initTrustView();
   loadGithubStars();
+  initSizeBars();
+  initVortex();
+  track("hero_view");
 });
 
 onBeforeUnmount(() => {
   document.documentElement.classList.remove("home-v2-active");
   while (cleanups.length) {
-    try { cleanups.pop()(); } catch {}
+    try {
+      cleanups.pop()();
+    } catch {}
   }
 });
 </script>
@@ -478,19 +577,52 @@ onBeforeUnmount(() => {
 <template>
   <div id="homev2" :class="{ 'has-widget-banner': fromWidget }">
     <Transition name="widget-banner">
-      <aside v-if="fromWidget" class="widget-banner" role="region" aria-label="From the Cap widget">
+      <aside
+        v-if="fromWidget"
+        class="widget-banner"
+        role="region"
+        :aria-label="t.bannerRegionLabel"
+      >
         <div class="wrap widget-banner-wrap">
           <span class="widget-banner-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M5 12.5l4.2 4.2L19 7" />
             </svg>
           </span>
           <p class="widget-banner-text">
-            <strong>You just verified you're human with Cap<template v-if="fromWidgetHost">&nbsp;on {{ fromWidgetHost }}</template>.</strong>
-            <span class="widget-banner-sub">You can close this tab. Or stick around if you're curious what Cap is.</span>
+            <strong
+              >{{ t.bannerVerified }}<template v-if="fromWidgetHost"
+                >{{ t.bannerHostPrefix }}{{ fromWidgetHost }}</template
+              >{{ t.bannerVerifiedEnd }}</strong
+            >
+            <span class="widget-banner-sub">{{ t.bannerSub }}</span>
           </p>
-          <button class="widget-banner-close" type="button" aria-label="Dismiss" @click="dismissWidgetBanner">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <button
+            class="widget-banner-close"
+            type="button"
+            :aria-label="t.bannerDismiss"
+            @click="dismissWidgetBanner"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -501,15 +633,23 @@ onBeforeUnmount(() => {
       <div class="wrap wrap-hero">
         <div class="inner">
           <div class="left">
-            <a class="brand" href="/" aria-label="Cap home">
+            <a class="brand" :href="lp + '/'" :aria-label="t.navBrandLabel">
               <img alt="" src="/logo.png" width="20" height="20" />
               <strong>Cap</strong>
             </a>
             <VPNavBarSearch class="homev2-search" />
           </div>
           <nav>
-            <a href="/guide/" data-cta="docs" data-cta-location="nav">Docs</a>
-            <a href="#features" data-cta="features" data-cta-location="nav">Features</a>
+            <a :href="lp + '/guide/'" data-cta="docs" data-cta-location="nav">{{
+              t.navDocs
+            }}</a>
+            <a href="#features" data-cta="features" data-cta-location="nav"
+              >{{ t.navFeatures }}</a
+            >
+            <a :href="lp + '/guide/demo.html'" data-cta="demo" data-cta-location="nav"
+              >{{ t.navDemo }}</a
+            >
+            <VPNavBarTranslations class="homev2-translations" />
             <a
               class="gh-link"
               href="https://github.com/tiagozip/cap"
@@ -528,7 +668,7 @@ onBeforeUnmount(() => {
                   d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.69-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38.97 0 1.95.13 2.86.38 2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.73.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.38-5.25 5.67.41.35.78 1.05.78 2.11 0 1.52-.01 2.75-.01 3.12 0 .31.21.67.8.56C20.71 21.38 24 17.08 24 12c0-6.27-5.23-11.5-11.5-11.5z"
                 />
               </svg>
-              <span id="homev2-gh-stars">6.2k</span>
+              <span class="homev2-gh-stars">6.2k</span>
             </a>
           </nav>
         </div>
@@ -536,21 +676,60 @@ onBeforeUnmount(() => {
     </header>
 
     <main>
+      <canvas id="homev2-vortex" class="vortex-bg" aria-hidden="true"></canvas>
+
       <div class="wrap hero-wrap">
         <div class="hero-copy">
           <h1>
-            Self-hosted CAPTCHA<br />
-            <span class="dim">for the modern web.</span>
+            {{ t.heroTitle }}<br />
+            <span class="dim">{{ t.heroTitleDim }}</span>
           </h1>
 
           <p class="lead">
-            No Google. No telemetry. No visual puzzles. <br />Switch from reCAPTCHA in minutes.
+            {{ t.heroLead1 }}<br />{{ t.heroLead2 }}
           </p>
 
           <div class="actions">
-            <a class="btn primary" href="/guide/" data-cta="docs" data-cta-location="hero">Read the docs <span class="arr">→</span></a>
-            <a class="btn" href="/guide/demo.html" data-cta="demo" data-cta-location="hero">Demo <span class="arr">↗</span></a>
-            <a class="btn" href="https://github.com/tiagozip/cap" data-cta="github" data-cta-location="hero">GitHub</a>
+            <a
+              class="btn primary"
+              :href="lp + '/guide/'"
+              data-cta="docs"
+              data-cta-location="hero"
+              >{{ t.heroCtaStart }}<span class="arr">→</span></a
+            >
+            <button
+              type="button"
+              class="btn copy-prompt"
+              :data-copied="promptCopied"
+              data-cta="agent-prompt"
+              data-cta-location="hero"
+              :title="t.heroCtaPromptTitle"
+              @click="copyAgentPrompt"
+            >
+              <span class="agent-marks" aria-hidden="true">
+                <svg viewBox="0 0 256 257">
+                  <path
+                    fill="#D97757"
+                    d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
+                  />
+                </svg>
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    clip-rule="evenodd"
+                    fill-rule="evenodd"
+                    d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"
+                  />
+                </svg>
+                <svg viewBox="0 0 466.73 532.09" fill="currentColor">
+                  <path
+                    d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z"
+                  />
+                </svg>
+              </span>
+              <span>{{
+                promptCopied ? t.heroCtaPromptCopied : t.heroCtaCopyPrompt
+              }}</span>
+            </button>
           </div>
         </div>
 
@@ -565,10 +744,11 @@ onBeforeUnmount(() => {
           <div class="dash-wrap">
             <div class="dash-frame">
               <img
-                src="/assets/screenshot.png"
-                alt="Cap admin dashboard screenshot"
+                src="/assets/screenshot.webp"
+                :alt="t.heroDashAlt"
                 width="2892"
                 height="1556"
+                fetchpriority="high"
                 style="width: 100%; height: auto"
               />
             </div>
@@ -577,215 +757,461 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="wrap">
-        <div class="trust">
-          <span class="trust-item">6k stars on GitHub</span><span class="trust-sep">·</span>
-          <span class="trust-item">Apache 2.0</span>
-          <span class="trust-sep">·</span>
-          <span class="trust-item">Zero dependencies</span>
-          <span class="trust-sep">·</span>
-          <span class="trust-item">20kb widget</span>
-          <span class="trust-sep">·</span>
-          <span class="trust-item">1.1B CDN hits</span>
+        <div class="trust-zone">
+          <div class="logoimg">
+            <span class="logobar-label">{{ t.trustLabel }}</span>
+            <span class="logoimg-row">
+              <img
+                class="li li-bunny"
+                src="/logos/bunny.svg"
+                alt="bunny.net"
+                width="112"
+                height="43"
+                loading="lazy"
+              />
+              <img
+                class="li li-adguard"
+                src="/logos/adguard.svg"
+                alt="AdGuard"
+                width="120"
+                height="60"
+                loading="lazy"
+              />
+              <img
+                class="li li-fraunhofer"
+                src="/logos/fraunhofer.svg"
+                alt="Fraunhofer"
+                width="258"
+                height="72"
+                loading="lazy"
+              />
+            </span>
+          </div>
         </div>
       </div>
 
       <section class="block" id="features">
         <div class="wrap-wide">
-          <div class="head">
-            <span class="eyebrow">Features</span>
-            <h2>250x smaller than hCaptcha.<br />No puzzles, no tracking.</h2>
-          </div>
           <div class="feat-grid">
             <div class="feat-cell">
               <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <path d="M12 3l8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  fill="currentColor"
+                  viewBox="0 0 256 256"
+                >
+                  <path
+                    d="M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-68-56a12,12,0,1,1-12-12A12,12,0,0,1,140,152Z"
+                  ></path>
                 </svg>
               </div>
-              <h3>Privacy-first</h3>
-              <p>
-                Zero telemetry. No third-party network. Your users' data stays between you and them.
-              </p>
+              <h3>{{ t.featPrivacyTitle }}</h3>
+              <p>{{ t.featPrivacyBody }}</p>
             </div>
             <div class="feat-cell">
               <div class="icon">
                 <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  fill="currentColor"
+                  viewBox="0 0 256 256"
+                >
+                  <path
+                    d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17ZM109.37,214l10.47-52.38a8,8,0,0,0-5-9.06L62,132.71l84.62-90.66L136.16,94.43a8,8,0,0,0,5,9.06l52.8,19.8Z"
+                  ></path>
+                </svg>
+              </div>
+              <h3>{{ t.featSizeTitle }}</h3>
+              <p>{{ t.featSizeBody }}</p>
+            </div>
+            <div class="feat-cell">
+              <div class="icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  fill="currentColor"
+                  viewBox="0 0 256 256"
+                >
+                  <path
+                    d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"
+                  ></path>
+                </svg>
+              </div>
+              <h3>{{ t.featInvisibleTitle }}</h3>
+              <p>{{ t.featInvisibleBody }}</p>
+            </div>
+            <div class="feat-cell">
+              <div class="icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="1.6"
+                  stroke-linecap="round"
                   stroke-linejoin="round"
+                  class="icon icon-tabler icons-tabler-outline icon-tabler-brand-open-source"
                 >
-                  <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                  <path
+                    d="M12 3a9 9 0 0 1 3.618 17.243l-2.193 -5.602a3 3 0 1 0 -2.849 0l-2.193 5.603a9 9 0 0 1 3.617 -17.244"
+                  />
                 </svg>
               </div>
-              <h3>~20kb, zero dependencies</h3>
-              <p>Loads in milliseconds, not seconds.</p>
+              <h3>{{ t.featOpenTitle }}</h3>
+              <p>{{ t.featOpenBody }}</p>
             </div>
             <div class="feat-cell">
               <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M8 12l3 3 5-6" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  fill="currentColor"
+                  viewBox="0 0 256 256"
+                >
+                  <path
+                    d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"
+                  ></path>
                 </svg>
               </div>
-              <h3>No visual puzzles</h3>
-              <p>
-                PoW and instrumentation run silently in the background. No "click the traffic
-                lights."
-              </p>
+              <h3>{{ t.featLawsTitle }}</h3>
+              <p>{{ t.featLawsBody }}</p>
             </div>
             <div class="feat-cell">
               <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
-                  <path d="M14 3v6h6" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="32"
+                  height="32"
+                  fill="currentColor"
+                  viewBox="0 0 256 256"
+                >
+                  <path
+                    d="M232,32a8,8,0,0,0-8-8c-44.08,0-89.31,49.71-114.43,82.63A60,60,0,0,0,32,164c0,30.88-19.54,44.73-20.47,45.37A8,8,0,0,0,16,224H92a60,60,0,0,0,57.37-77.57C182.3,121.31,232,76.08,232,32ZM92,208H34.63C41.38,198.41,48,183.92,48,164a44,44,0,1,1,44,44Zm32.42-94.45q5.14-6.66,10.09-12.55A76.23,76.23,0,0,1,155,121.49q-5.9,4.94-12.55,10.09A60.54,60.54,0,0,0,124.42,113.55Zm42.7-2.68a92.57,92.57,0,0,0-22-22c31.78-34.53,55.75-45,69.9-47.91C212.17,55.12,201.65,79.09,167.12,110.87Z"
+                  ></path>
                 </svg>
               </div>
-              <h3>Apache 2.0</h3>
-              <p>Free forever. Audit it, fork it, own it. No vendor can pull the rug.</p>
-            </div>
-            <div class="feat-cell">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <rect x="3" y="4" width="18" height="12" rx="2" />
-                  <path d="M7 20h10M12 16v4" />
-                </svg>
-              </div>
-              <h3>Standalone mode</h3>
-              <p>
-                Deploy anywhere with one Docker container. Includes analytics and multi-site-key
-                support.
-              </p>
-            </div>
-            <div class="feat-cell">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <path d="M8 6l-4 6 4 6M16 6l4 6-4 6M14 4l-4 16" />
-                </svg>
-              </div>
-              <h3>Programmatic</h3>
-              <p>
-                Hide the widget entirely and solve challenges silently, ideal for APIs and forms.
-              </p>
-            </div>
-            <div class="feat-cell">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-              </div>
-              <h3>API protection</h3>
-              <p>Block abusive traffic while allow-listing trusted automated clients.</p>
-            </div>
-            <div class="feat-cell">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M4 12h16M12 3a14 14 0 010 18M12 3a14 14 0 000 18" />
-                </svg>
-              </div>
-              <h3>Fully customizable</h3>
-              <p>
-                Colors, size, position, icons, all controllable via CSS variables. No iframe
-                lock-in.
-              </p>
+              <h3>{{ t.featCustomTitle }}</h3>
+              <p>{{ t.featCustomBody }}</p>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="block home-ad-block">
+      <section class="block" id="compliance">
         <div class="wrap-wide">
-          <div class="home-ad-slot">
-            <EthicalAd variant="homemid" position="top" :skip-on-mobile="true" />
+          <div class="head">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="32"
+              height="32"
+              fill="currentColor"
+              class="shield"
+              viewBox="0 0 256 256"
+            >
+              <path
+                d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm-34.32,69.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"
+              ></path>
+            </svg>
+            <h2>{{ t.cmplTitle }}</h2>
+            <p>{{ t.cmplBody }}</p>
+
+            <a
+              class="cmpl-link"
+              :href="lp + '/guide/compliance.html'"
+              data-cta="compliance"
+              data-cta-location="home_compliance"
+              >{{ t.cmplLink }}<span class="arr">↗</span></a
+            >
+          </div>
+
+          <div class="cmpl">
+            <div class="cmpl-row">
+              <span class="cmpl-label">{{ t.cmplPrivacyLabel }}</span>
+              <div class="cmpl-chips">
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/eu.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />GDPR</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/us.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />CCPA / CPRA</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/us.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />HIPAA</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/ca.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />PIPEDA / CPPA</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/br.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />LGPD</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/in.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />DPDPA</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/cn.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />PIPL</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/ru.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />152-FZ</span
+                >
+              </div>
+            </div>
+            <div class="cmpl-row">
+              <span class="cmpl-label">{{ t.cmplAccessibilityLabel }}</span>
+              <div class="cmpl-chips">
+                <span class="cmpl-chip"
+                  ><span class="cmpl-globe" aria-hidden="true"
+                    ><svg viewBox="0 0 32 32">
+                      <rect
+                        x="1"
+                        y="1"
+                        width="30"
+                        height="30"
+                        rx="7"
+                        fill="#1f6feb"
+                      />
+                      <g
+                        fill="none"
+                        stroke="#fff"
+                        stroke-width="1.7"
+                        stroke-linecap="round"
+                      >
+                        <circle cx="16" cy="16" r="10" />
+                        <ellipse cx="16" cy="16" rx="4.2" ry="10" />
+                        <path d="M6.4 13h19.2M6.4 19h19.2M16 6v20" />
+                      </g></svg></span
+                  >WCAG 2.2 AA</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/eu.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />EAA / EN 301 549</span
+                >
+                <span class="cmpl-chip"
+                  ><img
+                    src="/assets/flags/us.svg"
+                    alt=""
+                    width="18"
+                    height="18"
+                    loading="lazy"
+                  />Section 508</span
+                >
+                <span class="cmpl-chip"
+                  ><span class="cmpl-globe" aria-hidden="true"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="32"
+                      height="32"
+                      fill="currentColor"
+                      viewBox="0 0 256 256"
+                    >
+                      <path
+                        d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"
+                      ></path></svg></span
+                  >{{ t.cmplI18nChip }}</span
+                >
+
+                <span class="cmpl-chip"
+                  ><span class="cmpl-globe" aria-hidden="true"
+                    ><svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="32"
+                      height="32"
+                      fill="currentColor"
+                      viewBox="0 0 256 256"
+                    >
+                      <path
+                        d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"
+                      ></path></svg></span
+                  >{{ t.cmplRtlChip }}</span
+                >
+              </div>
+            </div>
           </div>
         </div>
       </section>
-      <HomeStickyAd />
+
+      <section class="block" id="speed">
+        <div class="wrap-wide speed-box">
+          <div class="speed-chart">
+            <div class="sizebars">
+              <div class="sizebar is-cap">
+                <span class="sb-name">Cap</span>
+                <span class="sb-bar">
+                  <span class="sb-fill" style="width: 2.4%"></span>
+                  <span class="sb-val"><b class="sb-num">20</b> kB</span>
+                </span>
+              </div>
+              <div class="sizebar">
+                <span class="sb-name">ALTCHA</span>
+                <span class="sb-bar">
+                  <span class="sb-fill" style="width: 4.1%"></span>
+                  <span class="sb-val"><b class="sb-num">34</b> kB</span>
+                </span>
+              </div>
+              <div class="sizebar">
+                <span class="sb-name">Turnstile</span>
+                <span class="sb-bar">
+                  <span class="sb-fill" style="width: 13.2%"></span>
+                  <span class="sb-val"><b class="sb-num">110</b> kB</span>
+                </span>
+              </div>
+              <div class="sizebar">
+                <span class="sb-name">reCAPTCHA</span>
+                <span class="sb-bar">
+                  <span class="sb-fill" style="width: 60%"></span>
+                  <span class="sb-val"><b class="sb-num">500</b> kB</span>
+                </span>
+              </div>
+              <div class="sizebar">
+                <span class="sb-name">hCaptcha</span>
+                <span class="sb-bar">
+                  <span class="sb-fill" style="width: 72%"></span>
+                  <span class="sb-val"><b class="sb-num">600</b> kB</span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="speed-copy">
+            <h2>{{ t.speedTitle }}</h2>
+            <p>{{ t.speedBody }}</p>
+            <p class="sizebars-note">{{ t.speedNote }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="testimonial">
+        <figure class="quote-card wrap-wide">
+          <blockquote class="quote-text">
+            {{ t.quoteLead }}<span class="hl">{{ t.quoteHl1 }}</span
+            >{{ t.quoteMid1 }}<span class="hl">{{ t.quoteHl2 }}</span
+            >{{ t.quoteMid2 }}<span class="hl">{{ t.quoteHl3 }}</span
+            >{{ t.quoteEnd }}
+          </blockquote>
+          <figcaption class="quote-by">
+            <img
+              class="quote-logo"
+              src="/logos/adguard.svg"
+              alt="AdGuard"
+              width="120"
+              height="60"
+              loading="lazy"
+            />
+            <span class="quote-sep" aria-hidden="true"></span>
+            <span class="quote-role">{{ t.quoteRole }}</span>
+          </figcaption>
+        </figure>
+      </section>
 
       <section class="block" id="compare">
         <div class="wrap-wide">
           <div class="head">
-            <span class="eyebrow">Compared</span>
-            <h2>How it compares.</h2>
-            <p>
-              Cap sits in the same detection tier as the big names, without shipping your users'
-              data to a third party.
-            </p>
+            <h2>{{ t.compareTitle }}</h2>
+            <p>{{ t.compareBody }}</p>
+            <a
+              class="cmpl-link"
+              :href="lp + '/guide/alternatives.html'"
+              data-cta="compare"
+              data-cta-location="home_compare"
+              >{{ t.compareLink }}<span class="arr">↗</span></a
+            >
           </div>
-          <div class="matrix">
-            <table>
-              <thead>
-                <tr>
-                  <th style="text-align: left">&nbsp;</th>
-                  <th class="cap-col">Cap</th>
-                  <th>reCAPTCHA</th>
-                  <th>Turnstile</th>
-                  <th>hCaptcha</th>
-                  <th>Friendly</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td class="label">Self-hosted</td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">-</span></td>
-                  <td><span class="no">-</span></td>
-                  <td><span class="no">-</span></td>
-                  <td><span class="no">-</span></td>
-                </tr>
-                <tr>
-                  <td class="label">Open source</td>
-                  <td><span class="yes">Apache 2.0</span></td>
-                  <td><span class="no">No</span></td>
-                  <td><span class="no">No</span></td>
-                  <td><span class="no">No</span></td>
-                  <td><span class="no">No</span></td>
-                </tr>
-                <tr>
-                  <td class="label">No visual puzzles</td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">Frequent</span></td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">Frequent</span></td>
-                  <td><span class="yes">Yes</span></td>
-                </tr>
-                <tr>
-                  <td class="label">No 3rd-party telemetry</td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">Google</span></td>
-                  <td><span class="no">Cloudflare</span></td>
-                  <td><span class="no">hCaptcha</span></td>
-                  <td><span class="no">Limited</span></td>
-                </tr>
-                <tr>
-                  <td class="label">Bundle size</td>
-                  <td><span class="yes">~20 kb</span></td>
-                  <td><span class="no">500 kb+</span></td>
-                  <td><span class="no">110 kb+</span></td>
-                  <td><span class="no">600 kb+</span></td>
-                  <td><span class="no">80 kb+</span></td>
-                </tr>
-                <tr>
-                  <td class="label">Free at scale</td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">Quota</span></td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">Quota</span></td>
-                  <td><span class="no">Paid</span></td>
-                </tr>
-                <tr>
-                  <td class="label">Instrumentation layer</td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="yes">Yes</span></td>
-                  <td><span class="no">No</span></td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="cmp">
+            <div class="cmp-row">
+              <h3>{{ t.compareSelfTitle }}</h3>
+              <p>{{ t.compareSelfBody }}</p>
+            </div>
+            <div class="cmp-row">
+              <h3>{{ t.compareOpenTitle }}</h3>
+              <p>{{ t.compareOpenBody }}</p>
+            </div>
+            <div class="cmp-row">
+              <h3>{{ t.comparePuzzlesTitle }}</h3>
+              <p>{{ t.comparePuzzlesBody }}</p>
+            </div>
+            <div class="cmp-row">
+              <h3>{{ t.compareTelemetryTitle }}</h3>
+              <p>{{ t.compareTelemetryBody }}</p>
+            </div>
+            <div class="cmp-row">
+              <h3>{{ t.compareFreeTitle }}</h3>
+              <p>{{ t.compareFreeBody }}</p>
+            </div>
+            <div class="cmp-row">
+              <h3>{{ t.compareLayersTitle }}</h3>
+              <p>{{ t.compareLayersBody }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="widget-demo">
+        <div class="wrap-wide">
+          <div class="widget-demo-box">
+            <span class="widget-demo-title">{{ t.widgetDemoTitle }}</span>
+            <div class="widget-demo-stage">
+              <span class="wd-widget-wrap">
+                <Demo />
+              </span>
+            </div>
           </div>
         </div>
       </section>
@@ -793,67 +1219,80 @@ onBeforeUnmount(() => {
       <section class="block">
         <div class="wrap">
           <div class="head">
-            <span class="eyebrow">Architecture</span>
-            <h2>Two independent layers.<br />Bypass one, the other still holds.</h2>
-            <p>
-              Every challenge solves proof-of-work and runs browser instrumentation at the same
-              time. Defeating one layer doesn't defeat the other.
-            </p>
+            <h2>
+              {{ t.layersTitle1 }}<br />{{ t.layersTitle2 }}
+            </h2>
+            <p>{{ t.layersBody }}</p>
           </div>
           <div class="how-grid">
             <div class="how-card">
-              <span class="lbl">Layer 01 · Proof-of-work</span>
-              <h3>Heavy math, in the browser.</h3>
-              <p>
-                The client solves parallel SHA-256 hashes in WASM. Tuned against GPU acceleration,
-                real CPU time, real money to scale.
-              </p>
-              <div class="kv-row">
-                <div>
-                  <span class="kv-k">target</span><span class="kv-v" id="homev2-pow-target">0x0000ffff…</span>
+              <span class="lbl">{{ t.layersPowLabel }}</span>
+              <h3>{{ t.layersPowTitle }}</h3>
+              <p>{{ t.layersPowBody }}</p>
+              <div class="kv-stack">
+                <div class="kv-row">
+                  <div>
+                    <span class="kv-k">{{ t.layersKvHashes }}</span
+                    ><span class="kv-v kv-rate">2.41M</span>
+                  </div>
+                  <div>
+                    <span class="kv-k">{{ t.layersKvTarget }}</span
+                    ><span class="kv-v kv-target">0x0000fffd…</span>
+                  </div>
                 </div>
-                <div>
-                  <span class="kv-k">hashes/s</span><span class="kv-v" id="homev2-pow-rate">2.40M</span>
+                <div class="kv-row">
+                  <div>
+                    <span class="kv-k">{{ t.layersKvHashes }}</span
+                    ><span class="kv-v kv-rate">2.36M</span>
+                  </div>
+                  <div>
+                    <span class="kv-k">{{ t.layersKvTarget }}</span
+                    ><span class="kv-v kv-target">0x0000ffff…</span>
+                  </div>
                 </div>
-                <div>
-                  <span class="kv-k">solved</span><span class="kv-v ok" id="homev2-pow-solved">1.82s ✓</span>
-                </div>
-              </div>
-              <div class="viz">
-                <code>sha256</code>
-                <div class="hash-scroller">
-                  <div class="track">
-                    <span>a7f3…b19c</span><span>9d4e…3b7f</span><span>2c1a…e88d</span><span>f06b…44a2</span><span>5e9c…d710</span><span>8b22…cc91</span>
-                    <span>a7f3…b19c</span><span>9d4e…3b7f</span><span>2c1a…e88d</span><span>f06b…44a2</span><span>5e9c…d710</span><span>8b22…cc91</span>
+                <div class="kv-row">
+                  <div>
+                    <span class="kv-k">{{ t.layersKvHashes }}</span
+                    ><span class="kv-v kv-rate">2.44M</span>
+                  </div>
+                  <div>
+                    <span class="kv-k">{{ t.layersKvTarget }}</span
+                    ><span class="kv-v kv-target">0x0000fff8…</span>
                   </div>
                 </div>
               </div>
             </div>
             <div class="how-card">
-              <span class="lbl">Layer 02 · Instrumentation</span>
-              <h3>A real browser proves itself.</h3>
-              <p>
-                A freshly-generated JS program runs DOM-dependent ops a real browser handles
-                trivially, and a headless runtime cannot fake cheaply.
-              </p>
+              <span class="lbl">{{ t.layersJsLabel }}</span>
+              <h3>{{ t.layersJsTitle }}</h3>
+              <p>{{ t.layersJsBody }}</p>
               <div class="probe-log">
                 <div class="pl">
-                  <span class="pi">01</span><span class="pn">layout.getComputedStyle</span><span class="pt">4ms</span>
+                  <span class="pi">01</span
+                  ><span class="pn">layout.getComputedStyle</span
+                  ><span class="pt">4ms</span>
                 </div>
                 <div class="pl">
-                  <span class="pi">02</span><span class="pn">canvas.toDataURL</span><span class="pt">11ms</span>
+                  <span class="pi">02</span
+                  ><span class="pn">canvas.toDataURL</span
+                  ><span class="pt">11ms</span>
                 </div>
                 <div class="pl">
-                  <span class="pi">03</span><span class="pn">event.isTrusted</span><span class="pt">2ms</span>
+                  <span class="pi">03</span
+                  ><span class="pn">event.isTrusted</span
+                  ><span class="pt">2ms</span>
                 </div>
                 <div class="pl">
-                  <span class="pi">04</span><span class="pn">navigator.webdriver</span><span class="pt ok">✓</span>
+                  <span class="pi">04</span
+                  ><span class="pn">navigator.webdriver</span
+                  ><span class="pt ok">✓</span>
                 </div>
               </div>
               <div class="viz">
                 <code>dom</code>
                 <div class="dom-probe">
-                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span
+                  ><span></span><span></span><span></span>
                 </div>
               </div>
             </div>
@@ -863,52 +1302,9 @@ onBeforeUnmount(() => {
 
       <section class="block">
         <div class="wrap">
-          <div class="head">
-            <span class="eyebrow">Install</span>
-            <h2>Drop it in. Point at your server.<br />Verify server-side.</h2>
-          </div>
-          <div class="install">
-            <div class="tabs" id="tabs">
-              <span class="tab-indicator" aria-hidden="true"></span>
-              <button data-tab="html" class="active">HTML</button>
-              <button data-tab="react">React</button>
-              <button data-tab="docker">Docker</button>
-              <button data-tab="verify">Verify</button>
-              <button id="homev2-copy-btn" class="copy-btn" aria-label="Copy snippet">
-                <svg
-                  class="ic ic-copy"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="9" y="9" width="11" height="11" rx="2" />
-                  <path d="M5 15V6a2 2 0 012-2h9" />
-                </svg>
-                <svg
-                  class="ic ic-check"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12l5 5 9-11" />
-                </svg>
-                <span class="copy-label">Copy</span>
-              </button>
-            </div>
-            <pre id="homev2-code"></pre>
-          </div>
-
           <div class="stats" id="homev2-stats" aria-live="polite">
             <div class="stats-row">
-              <span class="stats-label">CDN hits · 12mo</span>
+              <span class="stats-label">{{ t.statsLabel }}</span>
               <span class="stats-num odometer" id="homev2-stats-total"></span>
             </div>
             <svg
@@ -927,54 +1323,63 @@ onBeforeUnmount(() => {
           <div class="closer">
             <div class="closer-strip">
               <div class="closer-cell">
-                <span class="ck">size</span>
+                <span class="ck">{{ t.closerSizeLabel }}</span>
                 <span class="cv">20<i>kb</i></span>
-                <span class="cd">vs 600 kb+ hCaptcha</span>
+                <span class="cd">{{ t.closerSizeNote }}</span>
               </div>
               <div class="closer-cell">
-                <span class="ck">trackers</span>
+                <span class="ck">{{ t.closerTrackersLabel }}</span>
                 <span class="cv">0</span>
-                <span class="cd">vs reCAPTCHA</span>
+                <span class="cd">{{ t.closerTrackersNote }}</span>
               </div>
               <div class="closer-cell">
-                <span class="ck">cost</span>
+                <span class="ck">{{ t.closerCostLabel }}</span>
                 <span class="cv">$0<i>/mo</i></span>
-                <span class="cd">vs $1k+ hCaptcha</span>
+                <span class="cd">{{ t.closerCostNote }}</span>
               </div>
               <div class="closer-cell">
-                <span class="ck">setup</span>
+                <span class="ck">{{ t.closerSetupLabel }}</span>
                 <span class="cv">15<i>min</i></span>
-                <span class="cd">docker container</span>
+                <span class="cd">{{ t.closerSetupNote }}</span>
               </div>
             </div>
 
             <dl class="faq">
               <div>
-                <dt>Is it GDPR-friendly?</dt>
+                <dt>{{ t.faqGdprQ }}</dt>
+                <dd>{{ t.faqGdprA }}</dd>
+              </div>
+              <div>
+                <dt>{{ t.faqMigrateQ }}</dt>
+                <dd>{{ t.faqMigrateA }}</dd>
+              </div>
+              <div>
+                <dt>{{ t.faqBotsQ }}</dt>
+                <dd>{{ t.faqBotsA }}</dd>
+              </div>
+              <div>
+                <dt>{{ t.faqCostQ }}</dt>
+                <dd>{{ t.faqCostA }}</dd>
+              </div>
+              <div>
+                <dt>{{ t.faqOpenQ }}</dt>
                 <dd>
-                  Yes. Cap doesn't phone home, doesn't set cookies, and doesn't fingerprint users.
-                  Your server sees the verification, no one else does.
+                  {{ t.faqOpenA1 }}<a :href="lp + '/guide/standalone/'">{{
+                    t.faqOpenLink
+                  }}</a
+                  >{{ t.faqOpenA2 }}
                 </dd>
               </div>
               <div>
-                <dt>Can I migrate from reCAPTCHA / hCaptcha?</dt>
+                <dt>{{ t.faqAltQ }}</dt>
                 <dd>
-                  Yes. Cap's siteverify API is compatible with reCAPTCHA and hCaptcha, but you'll
-                  need to swap your client-side code to use Cap's widget.
-                </dd>
-              </div>
-              <div>
-                <dt>How effective is it against real bots?</dt>
-                <dd>
-                  Cap's instrumentation combined with proof-of-work is very effective at making
-                  abuse extremely difficult to automate at scale.
-                </dd>
-              </div>
-              <div>
-                <dt>What does it cost to self-host?</dt>
-                <dd>
-                  Cap Standalone fits on a $5 VPS for most sites. There are no per-request fees, no
-                  egress to a third party, and no API quotas to hit.
+                  {{ t.faqAltA1 }}<a :href="lp + '/guide/alternatives/recaptcha.html'"
+                    >reCAPTCHA</a
+                  >{{ t.faqAltSep1 }}<a :href="lp + '/guide/alternatives/hcaptcha.html'"
+                    >hCaptcha</a
+                  >{{ t.faqAltSep2
+                  }}<a :href="lp + '/guide/alternatives/turnstile.html'">Turnstile</a
+                  >{{ t.faqAltA2 }}
                 </dd>
               </div>
             </dl>
@@ -985,37 +1390,129 @@ onBeforeUnmount(() => {
       <section class="block cta-block">
         <div class="wrap">
           <div class="cta">
-            <span class="eyebrow">Get started</span>
-            <h2>Ship Cap in 15 minutes.</h2>
-            <p>
-              Drop the widget into your site, point it at a $5 VPS, and stop paying anyone to see
-              your users' traffic.
-            </p>
+            <h2>{{ t.ctaTitle }}</h2>
+            <p>{{ t.ctaBody }}</p>
             <div class="actions">
-              <a class="btn primary" href="/guide/" data-cta="docs" data-cta-location="cta_block">Read the docs <span class="arr">→</span></a>
-              <a class="btn" href="/guide/demo.html" data-cta="demo" data-cta-location="cta_block">Try the demo <span class="arr">↗</span></a>
-              <a class="btn" href="https://github.com/tiagozip/cap" data-cta="github" data-cta-location="cta_block">Star on GitHub</a>
+              <a
+                class="btn primary"
+                :href="lp + '/guide/'"
+                data-cta="docs"
+                data-cta-location="cta_block"
+                >{{ t.ctaStart }}</a
+              >
+              <a
+                class="btn"
+                :href="lp + '/guide/demo.html'"
+                data-cta="demo"
+                data-cta-location="cta_block"
+                >{{ t.ctaDemo }}<span class="arr">↗</span></a
+              >
+              <a
+                class="btn"
+                href="https://github.com/tiagozip/cap"
+                data-cta="github"
+                data-cta-location="cta_block"
+                >{{ t.ctaGithub }}</a
+              >
             </div>
           </div>
         </div>
       </section>
     </main>
 
-    <div class="wrap home-ad-wrap">
-      <EthicalAd variant="docbottom" />
-    </div>
-
     <footer>
-      <div class="wrap">
-        <div class="inner">
-          <span>© 2026 <a href="https://tiago.zip">tiago.zip</a> · Apache 2.0</span>
-          <span>
-            <a href="/guide/">Docs</a> ·
-            <a href="https://github.com/tiagozip/cap">GitHub</a> ·
-            <a href="/guide/demo.html">Demo</a>
-          </span>
+      <div class="wrap-wide ft-wrap">
+        <div class="ft-top">
+          <div class="ft-brand">
+            <a class="ft-logo" :href="lp + '/'" :aria-label="t.navBrandLabel">
+              <img alt="" src="/logo.png" width="26" height="26" />
+              <strong>Cap</strong>
+            </a>
+            <p class="ft-tagline">
+              {{ t.ftTagline1 }}<br />{{ t.ftTagline2 }}
+            </p>
+            <div class="ft-social">
+              <a
+                class="ft-soc gh-link"
+                href="https://github.com/tiagozip/cap"
+                aria-label="GitHub"
+                data-cta="github"
+                data-cta-location="footer"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="15"
+                  height="15"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.69-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38.97 0 1.95.13 2.86.38 2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.73.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.38-5.25 5.67.41.35.78 1.05.78 2.11 0 1.52-.01 2.75-.01 3.12 0 .31.21.67.8.56C20.71 21.38 24 17.08 24 12c0-6.27-5.23-11.5-11.5-11.5z"
+                  />
+                </svg>
+                <span class="homev2-gh-stars">6.2k</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="ft-cols">
+            <nav class="ft-col" :aria-label="t.ftProductLabel">
+              <span class="ft-col-title">{{ t.ftProductLabel }}</span>
+              <a :href="lp + '/guide/'" data-cta="docs" data-cta-location="footer"
+                >{{ t.ftQuickstart }}</a
+              >
+              <a
+                :href="lp + '/guide/standalone/'"
+                data-cta="standalone"
+                data-cta-location="footer"
+                >Standalone</a
+              >
+              <a
+                :href="lp + '/guide/widget.html'"
+                data-cta="widget"
+                data-cta-location="footer"
+                >{{ t.ftWidget }}</a
+              >
+              <a
+                :href="lp + '/guide/demo.html'"
+                data-cta="demo"
+                data-cta-location="footer"
+                >{{ t.ftDemo }}</a
+              >
+            </nav>
+            <nav class="ft-col" :aria-label="t.ftCompareLabel">
+              <span class="ft-col-title">{{ t.ftCompareLabel }}</span>
+              <a :href="lp + '/guide/alternatives/recaptcha.html'">{{
+                t.ftVsRecaptcha
+              }}</a>
+              <a :href="lp + '/guide/alternatives/turnstile.html'">{{
+                t.ftVsTurnstile
+              }}</a>
+              <a :href="lp + '/guide/alternatives/hcaptcha.html'">{{
+                t.ftVsHcaptcha
+              }}</a>
+              <a :href="lp + '/guide/alternatives.html'">{{ t.ftAllComparisons }}</a>
+            </nav>
+            <nav class="ft-col" :aria-label="t.ftLearnLabel">
+              <span class="ft-col-title">{{ t.ftLearnLabel }}</span>
+              <a :href="lp + '/guide/workings.html'">{{ t.ftHowItWorks }}</a>
+              <a :href="lp + '/guide/effectiveness.html'">{{ t.ftEffectiveness }}</a>
+              <a :href="lp + '/guide/compliance.html'">{{ t.ftCompliance }}</a>
+              <a :href="lp + '/guide/community.html'">{{ t.ftCommunity }}</a>
+            </nav>
+          </div>
+        </div>
+
+        <div class="ft-bottom">
+          <span class="ft-copy"
+            >© 2026 <a href="https://tiago.zip">tiago.zip</a></span
+          >
+
+          <p style="font-family: system-ui; opacity: 0.8">{{ t.ftLegal }}</p>
         </div>
       </div>
+
+      <FooterGlow />
     </footer>
   </div>
 </template>
@@ -1071,21 +1568,49 @@ onBeforeUnmount(() => {
   color: var(--fg-mute);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 120ms, color 120ms;
+  transition:
+    background 120ms,
+    color 120ms;
 }
-.widget-banner-close:hover { background: rgba(255, 255, 255, 0.06); color: var(--fg); }
+.widget-banner-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
 .widget-banner-enter-active,
-.widget-banner-leave-active { transition: max-height 260ms ease, opacity 180ms ease; overflow: hidden; }
+.widget-banner-leave-active {
+  transition:
+    max-height 260ms ease,
+    opacity 180ms ease;
+  overflow: hidden;
+}
 .widget-banner-enter-from,
-.widget-banner-leave-to { max-height: 0; opacity: 0; }
+.widget-banner-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
 .widget-banner-enter-to,
-.widget-banner-leave-from { max-height: 120px; opacity: 1; }
+.widget-banner-leave-from {
+  max-height: 120px;
+  opacity: 1;
+}
 
 @media (max-width: 720px) {
-  #homev2 .wrap.widget-banner-wrap { gap: 10px; align-items: flex-start; padding-block: 10px; }
-  .widget-banner-icon { margin-top: 2px; }
-  .widget-banner-text { font-size: 13px; }
-  .widget-banner-sub { display: block; margin-left: 0; margin-top: 2px; }
+  #homev2 .wrap.widget-banner-wrap {
+    gap: 10px;
+    align-items: flex-start;
+    padding-block: 10px;
+  }
+  .widget-banner-icon {
+    margin-top: 2px;
+  }
+  .widget-banner-text {
+    font-size: 13px;
+  }
+  .widget-banner-sub {
+    display: block;
+    margin-left: 0;
+    margin-top: 2px;
+  }
 }
 
 html.home-v2-active {
@@ -1098,7 +1623,9 @@ html.home-v2-active {
   --fg-mute: #7f849c;
   --accent: #89b4fa;
   --font: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono: "TX 02 Data", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mono:
+    "TX 02 Data", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
 
   background: var(--bg);
   color: var(--fg);
@@ -1171,10 +1698,6 @@ html.home-v2-active main.main {
 #homev2 .btn:focus-visible {
   outline-offset: 2px;
   border-radius: 8px;
-}
-#homev2 .install .tabs button:focus-visible {
-  outline-offset: -2px;
-  border-radius: 2px;
 }
 
 #homev2 .wrap {
@@ -1273,7 +1796,7 @@ html.home-v2-active main.main {
 #homev2 header.top nav {
   display: flex;
   gap: 22px;
-  align-items: baseline;
+  align-items: center;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--fg-dim);
@@ -1298,7 +1821,7 @@ html.home-v2-active main.main {
 #homev2 header.top nav a:hover {
   color: var(--fg);
 }
-#homev2 header.top nav a:hover::after {
+#homev2 header.top nav a:not(.homev2-translations a):hover::after {
   transform: scaleX(1);
 }
 #homev2 header.top nav a.gh-link {
@@ -1325,10 +1848,10 @@ html.home-v2-active main.main {
 #homev2 .homev2-search .DocSearch-Button {
   margin: 0;
   background: var(--surface);
-  transition: transform .2s;
+  transition: transform 0.2s;
 }
 #homev2 .homev2-search .DocSearch-Button:active {
-  transform: scale(.96);
+  transform: scale(0.96);
 }
 @media (max-width: 720px) {
   #homev2 .homev2-search .DocSearch-Button-Placeholder,
@@ -1380,31 +1903,66 @@ html.home-v2-active main.main {
 #homev2 .actions {
   margin-top: 32px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
 }
 #homev2 .btn {
   font: inherit;
-  font-size: 14px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--line-strong);
-  background: transparent;
+  font-size: 15px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: #3132446b;
   color: var(--fg);
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: border-color 0.15s, background 0.15s, transform .15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.2s;
+}
+#homev2 .copy-prompt {
+  cursor: copy;
+}
+#homev2 .copy-prompt[data-copied="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+#homev2 .agent-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+#homev2 .agent-marks svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+#homev2 .copy-prompt:hover .agent-marks svg {
+  opacity: 1;
 }
 #homev2 .btn:hover {
   border-color: rgba(255, 255, 255, 0.3);
   background: rgba(255, 255, 255, 0.02);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  span {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+  }
+
+  &:not(.primary) span {
+    text-decoration-color: #00000000;
+  }
 }
 #homev2 .btn:active {
-  transform: scale(.96);
+  transform: scale(0.96);
 }
 #homev2 .btn.primary {
   background: var(--accent);
@@ -1412,24 +1970,46 @@ html.home-v2-active main.main {
   border-color: var(--accent);
   font-weight: 500;
 }
-#homev2 .btn.primary:hover {
-  background: #fff;
-  border-color: #fff;
-}
 
 #homev2 .btn .arr {
   opacity: 0.6;
   display: inline-block;
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease;
+}
+#homev2 .btn.primary .arr {
+  opacity: 1;
 }
 #homev2 .btn:hover .arr {
   opacity: 1;
   transform: translateX(3px);
 }
 
+#homev2 main {
+  position: relative;
+}
+#homev2 .vortex-bg {
+  position: absolute;
+  left: 0;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.45s;
+}
+#homev2 .vortex-bg.is-live {
+  opacity: 1;
+}
+#homev2 .hero-wrap {
+  position: relative;
+  z-index: 1;
+}
+
 #homev2 .hero-stage {
   margin: 64px 0 0;
   position: relative;
+  z-index: 1;
   min-height: 360px;
   display: flex;
   align-items: center;
@@ -1474,33 +2054,7 @@ html.home-v2-active main.main {
 }
 
 #homev2 section.block {
-  padding: 80px 0 0;
-}
-#homev2 section.home-ad-block {
-  padding: 56px 0 0;
-}
-#homev2 .home-ad-slot {
-  max-width: 520px;
-  margin: 0 auto;
-  --vp-c-bg-soft: var(--surface);
-  --vp-c-bg-alt: var(--bg);
-  --vp-c-border: var(--line);
-  --vp-c-text-1: var(--fg);
-  --vp-c-text-2: var(--fg-dim);
-  --vp-c-text-3: var(--fg-mute);
-  --vp-c-brand-1: var(--accent);
-  --carbon-bg-primary: var(--surface);
-  --carbon-bg-secondary: var(--bg);
-  --carbon-text-color: var(--fg);
-}
-#homev2 .home-ad-slot .ea-wrap--homemid {
-  width: 100%;
-  margin: 0;
-}
-@media (max-width: 768px) {
-  #homev2 section.home-ad-block {
-    display: none;
-  }
+  padding: 60px 0 0;
 }
 #homev2 section.block.cta-block {
   padding: 120px 0 80px;
@@ -1602,6 +2156,79 @@ html.home-v2-active main.main {
   color: var(--fg-mute);
 }
 
+#homev2 .logobar {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px 13px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+#homev2 .logobar-label {
+  font-size: 14px;
+  color: var(--fg-mute);
+  margin-bottom: 2px;
+}
+#homev2 .logobar-item {
+  color: var(--fg);
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 13px;
+}
+#homev2 .logobar-sep {
+  color: var(--fg-mute);
+}
+#homev2 .logobar-more {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
+#homev2 .logoimg {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px 30px;
+  flex-direction: column;
+}
+#homev2 .logoimg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px 34px;
+}
+#homev2 img.li {
+  width: auto;
+  object-fit: contain;
+  opacity: 0.9;
+  transition: opacity 0.18s ease;
+
+  --scale: 1.2;
+}
+#homev2 img.li.li-bunny {
+  height: calc(32px * var(--scale));
+}
+#homev2 img.li.li-adguard {
+  height: calc(30px * var(--scale));
+}
+#homev2 img.li.li-fraunhofer {
+  height: calc(22px * var(--scale));
+}
+#homev2 img.li:hover {
+  opacity: 1;
+}
+
 #homev2 .how-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1657,23 +2284,6 @@ html.home-v2-active main.main {
   border-radius: 4px;
   font-size: 11px;
 }
-#homev2 .hash-scroller {
-  flex: 1;
-  overflow: hidden;
-  height: 14px;
-  mask: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-}
-#homev2 .hash-scroller .track {
-  display: flex;
-  gap: 14px;
-  white-space: nowrap;
-  animation: homev2-hash-scroll 10s linear infinite;
-  color: var(--fg-mute);
-}
-@keyframes homev2-hash-scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
 #homev2 .dom-probe {
   display: flex;
   gap: 6px;
@@ -1686,23 +2296,41 @@ html.home-v2-active main.main {
   background: var(--line-strong);
   animation: homev2-probe-pulse 2.4s ease-in-out infinite;
 }
-#homev2 .dom-probe span:nth-child(2) { animation-delay: 0.2s; }
-#homev2 .dom-probe span:nth-child(3) { animation-delay: 0.4s; }
-#homev2 .dom-probe span:nth-child(4) { animation-delay: 0.6s; }
-#homev2 .dom-probe span:nth-child(5) { animation-delay: 0.8s; }
-#homev2 .dom-probe span:nth-child(6) { animation-delay: 1s; }
-#homev2 .dom-probe span:nth-child(7) { animation-delay: 1.2s; }
+#homev2 .dom-probe span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+#homev2 .dom-probe span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+#homev2 .dom-probe span:nth-child(4) {
+  animation-delay: 0.6s;
+}
+#homev2 .dom-probe span:nth-child(5) {
+  animation-delay: 0.8s;
+}
+#homev2 .dom-probe span:nth-child(6) {
+  animation-delay: 1s;
+}
+#homev2 .dom-probe span:nth-child(7) {
+  animation-delay: 1.2s;
+}
 @keyframes homev2-probe-pulse {
-  0%, 100% { background: var(--line-strong); }
-  50% { background: var(--accent); }
+  0%,
+  100% {
+    background: var(--line-strong);
+  }
+  50% {
+    background: var(--accent);
+  }
+}
+#homev2 .kv-stack {
+  margin-top: auto;
 }
 #homev2 .kv-row {
   display: flex;
   gap: 18px;
-  padding: 10px 0;
+  padding: 9px 0;
   border-top: 1px dashed var(--line);
-  border-bottom: 1px dashed var(--line);
-  margin-top: 4px;
   flex-wrap: wrap;
 }
 #homev2 .kv-row > div {
@@ -1743,266 +2371,312 @@ html.home-v2-active main.main {
   font-family: var(--mono);
   font-size: 11.5px;
 }
-#homev2 .pl .pi { color: var(--fg-mute); }
-#homev2 .pl .pn { color: var(--fg-dim); }
-#homev2 .pl .pt { color: var(--fg-mute); font-size: 10.5px; }
-#homev2 .pl .pt.ok { color: var(--accent); }
+#homev2 .pl .pi {
+  color: var(--fg-mute);
+}
+#homev2 .pl .pn {
+  color: var(--fg-dim);
+}
+#homev2 .pl .pt {
+  color: var(--fg-mute);
+  font-size: 10.5px;
+}
+#homev2 .pl .pt.ok {
+  color: var(--accent);
+}
 #homev2 .pl .pt.running {
   color: var(--fg-mute);
   animation: homev2-probe-dots 0.9s ease-in-out infinite;
 }
 @keyframes homev2-probe-dots {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-#homev2 .hash-scroller .track span {
-  transition: color 0.18s ease-out, text-shadow 0.18s ease-out;
-}
-#homev2 .hash-scroller .track span.match {
-  color: var(--accent);
-  text-shadow: 0 0 10px color-mix(in oklab, var(--accent) 55%, transparent);
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 #homev2 .feat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: 12px;
   overflow: hidden;
 }
 #homev2 .feat-cell {
   background: var(--bg);
-  padding: 24px 22px 28px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 180px;
-  transition: background 0.2s;
-}
-#homev2 .feat-cell:hover {
-  background: var(--surface);
+  padding-right: 30px;
+  padding-top: 30px;
 }
 #homev2 .feat-cell .icon {
   color: var(--accent);
-  width: 24px;
-  height: 24px;
+  width: 38px;
+  height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
 }
 #homev2 .feat-cell .icon svg {
-  width: 24px;
-  height: 24px;
+  width: 38px;
+  height: 38px;
   position: relative;
 }
 #homev2 .feat-cell h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 500;
   color: var(--fg);
   letter-spacing: -0.005em;
+  margin-top: 12px;
 }
 #homev2 .feat-cell p {
   margin: 0;
   color: var(--fg-dim);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
-#homev2 .matrix {
+#homev2 #compare .wrap-wide {
+  display: flex;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  position: relative;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
 }
-#homev2 .matrix::-webkit-scrollbar {
-  height: 6px;
-}
-#homev2 .matrix::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 3px;
-}
-#homev2 .matrix table {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-  font-size: 13.5px;
-}
-#homev2 .matrix th,
-#homev2 .matrix td {
-  padding: 14px 14px;
-  text-align: center;
-  border-bottom: 1px solid var(--line);
+#homev2 #compare .head {
+  flex: 0 0 38%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-bottom: 0;
+  padding: 40px 32px;
   border-right: 1px solid var(--line);
 }
-#homev2 .matrix th:last-child,
-#homev2 .matrix td:last-child {
-  border-right: none;
+#homev2 .cmp {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 32px;
 }
-#homev2 .matrix tr:last-child th,
-#homev2 .matrix tr:last-child td {
-  border-bottom: none;
+#homev2 .cmp-row {
+  padding: 17px 0;
 }
-#homev2 .matrix th {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  background: var(--surface);
+#homev2 .cmp-row + .cmp-row {
+  border-top: 1px solid var(--line);
+}
+#homev2 .cmp-row h3 {
+  margin: 0 0 5px;
+  font-size: 15px;
   font-weight: 500;
-}
-#homev2 .matrix th.cap-col {
-  color: var(--accent);
-}
-#homev2 .matrix td.label {
-  text-align: left;
+  letter-spacing: -0.005em;
   color: var(--fg);
-  background: rgba(255, 255, 255, 0.015);
-  font-weight: 500;
 }
-#homev2 .matrix td .yes {
-  color: var(--accent);
-  font-weight: 500;
+#homev2 .cmp-row p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-dim);
 }
-#homev2 .matrix td .no {
-  color: var(--fg-mute);
-}
-#homev2 .matrix tbody tr {
-  transition: background 0.2s ease;
-}
-#homev2 .matrix tbody tr:hover {
-  background: rgba(255, 255, 255, 0.015);
-}
-#homev2 .matrix th.cap-col,
-#homev2 .matrix tbody td:nth-child(2) {
-  background: color-mix(in oklab, var(--accent) 5%, transparent);
+@media (max-width: 860px) {
+  #homev2 #compare .wrap-wide {
+    flex-direction: column;
+  }
+  #homev2 #compare .head {
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 28px;
+  }
+  #homev2 .cmp {
+    padding: 6px 28px 18px;
+  }
 }
 
-#homev2 .install {
-  margin-top: 28px;
-  background: var(--surface);
+#homev2 #widget-demo .wrap-wide {
+  padding: 0;
+}
+#homev2 #widget-demo .widget-demo-box {
+  text-align: center;
+  padding: 32px 32px 36px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
+  border-radius: 12px;
 }
-#homev2 .install .tabs {
+#homev2 #widget-demo .widget-demo-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+#homev2 #widget-demo .widget-demo-stage {
+  position: relative;
   display: flex;
-  position: relative;
-  border-bottom: 1px solid var(--line);
-  font-family: var(--mono);
-  font-size: 12px;
-}
-#homev2 .install .tab-indicator {
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  height: 1px;
-  background: var(--accent);
-  transform: translateX(0);
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), width 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  pointer-events: none;
-  width: 0;
-}
-#homev2 .install .tabs button {
-  background: transparent;
-  border: none;
-  font-family: inherit;
-  color: var(--fg-dim);
-  padding: 12px 16px;
-  cursor: pointer;
-  border-right: 1px solid var(--line);
-  transition: color 0.15s, background 0.15s;
-}
-#homev2 .install .tabs button:hover {
-  color: var(--fg);
-}
-#homev2 .install .tabs button.active {
-  color: var(--fg);
-  background: rgba(255, 255, 255, 0.03);
-}
-#homev2 .install .copy-btn {
-  margin-left: auto;
-  border-right: none;
-  border-left: 1px solid var(--line);
-  display: inline-flex;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
-  color: var(--fg-dim);
-  position: relative;
+  padding: 10px 0 24px;
 }
-#homev2 .install .copy-btn .ic {
-  width: 13px;
-  height: 13px;
-  transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+#homev2 #widget-demo .wd-widget-wrap {
+  display: inline-block;
+  transform: scale(1.1);
+  transform-origin: center;
 }
-#homev2 .install .copy-btn .ic-check {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%) scale(0.6);
-  opacity: 0;
-  color: var(--accent);
+@media (max-width: 640px) {
+  #homev2 #widget-demo .widget-demo-box {
+    padding: 36px 20px 34px;
+  }
+  #homev2 #widget-demo .widget-demo-stage {
+    padding: 28px 0 12px;
+  }
+  #homev2 #widget-demo .wd-widget-wrap {
+    transform: scale(1);
+  }
 }
-#homev2 .install .copy-btn.copied .ic-copy {
-  opacity: 0;
-  transform: scale(0.6);
-}
-#homev2 .install .copy-btn.copied .ic-check {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-}
-#homev2 .install .copy-btn.copied {
-  color: var(--accent);
-}
-#homev2 .install pre {
-  margin: 0;
-  padding: 22px 24px;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--fg);
-  overflow-x: auto;
-  background: transparent;
-  white-space: pre;
-}
-#homev2 .install pre .c { color: var(--fg-mute); font-style: italic; }
-#homev2 .install pre .k { color: var(--accent); }
-#homev2 .install pre .s { color: #b6e0a7; }
-#homev2 .install pre .t { color: #f5c2e7; }
-#homev2 .install pre .a { color: #fab387; }
-#homev2 .install pre .n { color: #f9e2af; }
-#homev2 .install pre .p { color: #cba6f7; }
 
 #homev2 footer {
-  margin-top: 120px;
-  padding: 40px 0 48px;
+  position: relative;
+  margin-top: 20px;
+  padding: 36px 0 0;
+  overflow: hidden;
+}
+#homev2 .ft-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+#homev2 .ft-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 56px;
+  padding-bottom: 56px;
+}
+
+#homev2 .ft-logo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 18px;
+}
+#homev2 .ft-logo img {
+  width: 26px;
+  height: 26px;
+  transform: translateY(5px);
+  border-radius: 0 !important;
+}
+#homev2 .ft-logo strong {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+#homev2 .ft-tagline {
+  margin: 18px 0 0;
+  max-width: 30ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+#homev2 .ft-social {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+#homev2 .ft-soc {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+#homev2 .ft-soc:hover {
+  color: var(--fg);
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+}
+
+#homev2 .ft-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+}
+#homev2 .ft-col {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+#homev2 .ft-col-title {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-bottom: 3px;
+}
+#homev2 .ft-col a {
+  position: relative;
+  width: fit-content;
+  font-size: 13.5px;
+  color: var(--fg-dim);
+  transition:
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+#homev2 .ft-col a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#homev2 .ft-col a:hover {
+  color: var(--fg);
+}
+#homev2 .ft-col a:hover::after {
+  transform: scaleX(1);
+}
+
+#homev2 .ft-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+  padding: 22px 0 36px;
   border-top: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 12px;
   color: var(--fg-mute);
 }
-#homev2 footer .inner {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
+#homev2 .ft-copy a {
+  color: var(--fg-dim);
+  transition: color 0.18s ease;
 }
-#homev2 footer a {
-  transition: opacity 0.2s;
-}
-#homev2 footer a:hover {
+#homev2 .ft-copy a:hover {
   color: var(--fg);
 }
-#homev2 footer .inner span:has(a:hover) a:not(:hover) {
-  opacity: 0.6;
+@media (prefers-reduced-motion: reduce) {
+  #homev2 .ft-hashtrack {
+    animation: none;
+  }
 }
 
 #homev2 .stats {
@@ -2237,11 +2911,6 @@ html.home-v2-active main.main {
     padding: 9px 14px;
     font-size: 13.5px;
   }
-  #homev2 .matrix th,
-  #homev2 .matrix td {
-    padding: 10px 12px;
-    font-size: 12px;
-  }
   #homev2 section.block {
     padding: 48px 0 0;
   }
@@ -2281,30 +2950,34 @@ html.home-v2-active main.main {
   #homev2 .trust-sep {
     display: none;
   }
+  #homev2 .logobar {
+    margin-top: 32px;
+    gap: 7px 11px;
+  }
+  #homev2 .logoimg {
+    margin-top: 32px;
+    gap: 12px 18px;
+  }
+  #homev2 .logoimg-row {
+    gap: 14px 24px;
+  }
+  #homev2 img.li.li-bunny {
+    height: 23px;
+  }
+  #homev2 img.li.li-adguard {
+    height: 25px;
+  }
+  #homev2 img.li.li-fraunhofer {
+    height: 16px;
+  }
   #homev2 footer {
-    margin-top: 80px;
-    padding: 32px 0 40px;
+    margin-top: 12px;
+    padding-top: 56px;
   }
-  #homev2 .install .tabs {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  #homev2 .install .tabs::-webkit-scrollbar {
-    display: none;
-  }
-  #homev2 .install .tabs button {
-    padding: 11px 14px;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  #homev2 .install .copy-btn {
-    position: sticky;
-    right: 0;
-    background: var(--surface);
-  }
-  #homev2 .install pre {
-    padding: 18px 20px;
-    font-size: 12px;
+  #homev2 .ft-top {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-bottom: 40px;
   }
   #homev2 .how-card {
     padding: 20px;
@@ -2321,9 +2994,13 @@ html.home-v2-active main.main {
   #homev2 .hero-stage {
     margin-top: 40px;
   }
-  #homev2 footer .inner {
-    flex-direction: column;
-    gap: 12px;
+  #homev2 .ft-cols {
+    gap: 24px 20px;
+  }
+}
+@media (max-width: 480px) {
+  #homev2 .ft-cols {
+    grid-template-columns: 1fr 1fr;
   }
 }
 @media (max-width: 420px) {
@@ -2333,9 +3010,6 @@ html.home-v2-active main.main {
   }
   #homev2 h1 {
     font-size: 26px;
-  }
-  #homev2 .actions {
-    gap: 6px;
   }
   #homev2 .btn {
     padding: 9px 12px;
@@ -2364,19 +3038,33 @@ html.home-v2-active main.main {
 }
 
 @keyframes homev2-hero-in {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes homev2-hero-stage-in {
-  from { opacity: 0; transform: translateY(24px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 #homev2 .hero-copy > h1,
 #homev2 .hero-copy > .lead,
 #homev2 .hero-copy > .actions,
 #homev2 .hero-image,
 #homev2 .hero-stage,
-#homev2 .trust {
+#homev2 .trust,
+#homev2 .logobar,
+#homev2 .logoimg {
   opacity: 0;
   animation: homev2-hero-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -2384,12 +3072,26 @@ html.home-v2-active main.main {
   animation-name: homev2-hero-stage-in;
   animation-duration: 0.9s;
 }
-#homev2 .hero-copy > h1 { animation-delay: 0.05s; }
-#homev2 .hero-copy > .lead { animation-delay: 0.2s; }
-#homev2 .hero-copy > .actions { animation-delay: 0.34s; }
-#homev2 .hero-image { animation-delay: 0.2s; }
-#homev2 .hero-stage { animation-delay: 0.48s; }
-#homev2 .trust { animation-delay: 0.62s; }
+#homev2 .hero-copy > h1 {
+  animation-delay: 0.05s;
+}
+#homev2 .hero-copy > .lead {
+  animation-delay: 0.2s;
+}
+#homev2 .hero-copy > .actions {
+  animation-delay: 0.34s;
+}
+#homev2 .hero-image {
+  animation-delay: 0.2s;
+}
+#homev2 .hero-stage {
+  animation-delay: 0.48s;
+}
+#homev2 .trust,
+#homev2 .logobar,
+#homev2 .logoimg {
+  animation-delay: 0.62s;
+}
 
 @media (prefers-reduced-motion: reduce) {
   #homev2 .hero-copy > h1,
@@ -2397,14 +3099,18 @@ html.home-v2-active main.main {
   #homev2 .hero-copy > .actions,
   #homev2 .hero-image,
   #homev2 .hero-stage,
-  #homev2 .trust {
+  #homev2 .trust,
+  #homev2 .logobar,
+  #homev2 .logoimg {
     opacity: 1;
     animation: none;
   }
-  #homev2 .hash-scroller .track,
   #homev2 .dom-probe span,
   #homev2 .pl .pt.running {
     animation: none;
+  }
+  #homev2 .vortex-bg {
+    transition-delay: 0s;
   }
 }
 
@@ -2419,5 +3125,310 @@ html.home-v2-active main.main {
   font-family: "Inter";
   src: url("/assets/inter.woff2") format("woff2");
   font-display: swap;
+}
+
+#homev2 #compliance {
+  .wrap-wide {
+    display: flex;
+    gap: 0px;
+    border: 1px solid var(--line);
+    padding-top: 0px;
+    padding-bottom: 0px;
+    border-radius: 12px;
+
+    .head {
+      flex: 0 0 38%;
+      padding-top: 48px;
+      padding-bottom: 48px;
+      border-right: 1px solid var(--line);
+      margin-bottom: 0px;
+      padding-right: 30px;
+
+      .shield {
+        color: var(--accent);
+        width: 48px;
+        height: 48px;
+      }
+
+      h2 {
+        margin-top: 1em;
+      }
+    }
+  }
+}
+
+#homev2 .cmpl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px 32px;
+}
+#homev2 .cmpl-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 0;
+}
+#homev2 .cmpl-row + .cmpl-row {
+  border-top: 1px solid var(--line);
+}
+#homev2 .cmpl-label {
+  color: var(--fg-mute);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+#homev2 .cmpl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#homev2 .cmpl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+#homev2 .cmpl-chip img,
+#homev2 .cmpl-chip .cmpl-globe,
+#homev2 .cmpl-chip .cmpl-globe svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+#homev2 .cmpl-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 28px;
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+}
+#homev2 .cmpl-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 860px) {
+  #homev2 #compliance .wrap-wide {
+    flex-direction: column;
+  }
+  #homev2 #compliance .wrap-wide .head {
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 32px 28px;
+  }
+  #homev2 .cmpl {
+    padding: 8px 28px 24px;
+  }
+}
+
+#homev2 .speed-box {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+#homev2 .speed-chart {
+  flex: 1;
+  min-width: 0;
+  padding: 34px 36px;
+  border-right: 1px solid var(--line);
+}
+#homev2 .speed-copy {
+  flex: 0 0 39%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 34px 36px;
+}
+#homev2 .speed-copy h2 {
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  margin: 0 0 12px;
+}
+#homev2 .speed-copy p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+#homev2 .speed-copy .sizebars-note {
+  margin: 16px 0 0;
+  font-size: 12.5px;
+  color: var(--fg-mute);
+}
+#homev2 .sizebars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+#homev2 .sizebar {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: 14px;
+}
+#homev2 .sb-name {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-dim);
+}
+#homev2 .sb-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+#homev2 .sb-fill {
+  flex: none;
+  height: 26px;
+  min-width: 8px;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--fg-mute) 26%, var(--surface));
+}
+#homev2 .sb-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--fg-mute);
+  white-space: nowrap;
+}
+#homev2 .sb-num {
+  font-weight: 600;
+  color: var(--fg-dim);
+}
+#homev2 .sizebar.is-cap .sb-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+#homev2 .sizebar.is-cap .sb-fill {
+  background: var(--accent);
+}
+#homev2 .sizebar.is-cap .sb-val,
+#homev2 .sizebar.is-cap .sb-num {
+  color: var(--accent);
+}
+
+#homev2 #compare,
+#homev2 #speed,
+#homev2 #widget-demo,
+#homev2 #testimonial {
+  padding-top: 32px;
+}
+@media (max-width: 640px) {
+  #homev2 .sizebar {
+    grid-template-columns: 64px 1fr;
+    gap: 10px;
+  }
+  #homev2 .sb-name {
+    font-size: 12px;
+  }
+}
+@media (max-width: 860px) {
+  #homev2 .speed-box {
+    flex-direction: column-reverse;
+  }
+  #homev2 .speed-chart {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 26px 24px;
+  }
+  #homev2 .speed-copy {
+    flex: none;
+    padding: 28px 24px;
+  }
+}
+
+#homev2 #testimonial .quote-card {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 40px 36px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+#homev2 .quote-text {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 400;
+  line-height: 1.42;
+  letter-spacing: -0.015em;
+  color: var(--fg-dim);
+  text-wrap: balance;
+}
+#homev2 .quote-text .hl {
+  color: var(--fg);
+  font-weight: 500;
+}
+#homev2 .quote-by {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+#homev2 .quote-logo {
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.95;
+}
+#homev2 .quote-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+}
+#homev2 .quote-role {
+  font-size: 14px;
+  color: var(--fg-mute);
+}
+@media (max-width: 860px) {
+  #homev2 #testimonial .quote-card {
+    gap: 26px;
+    padding: 28px 24px;
+  }
+  #homev2 .quote-text {
+    font-size: 22px;
+  }
+}
+
+#homev2 .homev2-translations {
+  display: flex !important;
+  align-items: center;
+}
+#homev2 .homev2-translations .button {
+  display: flex;
+  align-items: center;
+  height: auto;
+  padding: 0;
+  color: var(--fg-dim);
+  transition: color 0.18s ease;
+
+  .text {
+    color: var(--fg-dim);
+  }
+}
+#homev2 .homev2-translations .button:hover {
+  color: var(--fg);
+}
+#homev2 .homev2-translations .menu {
+  top: calc(100% - 2px);
+  padding-top: 10px;
+  z-index: 60;
 }
 </style>

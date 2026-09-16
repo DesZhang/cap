@@ -1,6 +1,6 @@
 {
   "name": "cap-standalone",
-  "version": "3.1.0",
+  "version": "3.1.11",
   "keywords": [
     "algorithm",
     "anti-abuse",
@@ -42,13 +42,13 @@
   "scripts": {
     "test": "bun test",
     "dev": "bun run --watch src/index.js",
-    "docker:publish": "docker buildx build --platform linux/amd64,linux/arm64 -t tiago2/cap:3.1.0 -t tiago2/cap:3.1 -t tiago2/cap:3 -t tiago2/cap:latest -f standalone/Dockerfile .. --push"
+    "docker:publish": "cd .. && docker buildx build --platform linux/amd64,linux/arm64 -t tiago2/cap:3.1.11 -t tiago2/cap:3.1 -t tiago2/cap:3 -t tiago2/cap:latest -f standalone/Dockerfile . --push"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
-    "capjs-core": "file:../core",
-    "elysia": "^1.4.28",
+    "capjs-core": "^0.1.2",
     "ioredis": "^5.10.1",
+    "elysia": "^1.4.28",
     "maxmind": "^5.0.6"
   },
   "devDependencies": {

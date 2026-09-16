@@ -1,11 +1,14 @@
+import { cors } from "@elysiajs/cors";
 import { Elysia, file } from "elysia";
 import { assetsServer } from "./assets.js";
 import { auth } from "./auth.js";
 import { capServer } from "./cap.js";
 import { isDemoMode } from "./demo.js";
 import { loadIPDB } from "./ipdb.js";
+import { loadRswKeypair, startRswRefresh } from "./rsw-store.js";
 import { server } from "./server.js";
 import {
+  checkCorsOrigin,
   loadCorsDefault,
   loadFiltering,
   loadHeaders,
@@ -28,11 +31,24 @@ new Elysia({
     set.headers["X-Powered-By"] = "Cap Standalone";
   })
   .onError(({ error, code }) => {
+    const serializeError = (err) =>
+      err instanceof Error
+        ? {
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            ...(err.code ? { code: err.code } : {}),
+            ...(err.cause ? { cause: String(err.cause) } : {}),
+          }
+        : err;
+
     if (["VALIDATION", "NOT_FOUND"].includes(code)) {
       return {
         success: false,
-        error: error.code || "Internal server error",
-        detail: error,
+        error: error.code || code || "Request rejected",
+        ...(process.env.SHOW_ERRORS === "true"
+          ? { detail: serializeError(error) }
+          : {}),
       };
     }
 
@@ -43,7 +59,7 @@ new Elysia({
         `[${error.code || "ERR"} ${errorId}]`,
         JSON.stringify({
           timestamp: new Date().toISOString(),
-          error,
+          error: serializeError(error),
           env: {
             bun: process.versions.bun,
             platform: process.platform,
@@ -58,7 +74,7 @@ new Elysia({
       error: error.code || "Internal server error",
       detail:
         process.env.SHOW_ERRORS === "true"
-          ? error
+          ? serializeError(error)
           : {
               troubleshooting:
                 "http://trycap.dev/guide/standalone/options.html#error-messages",
@@ -66,6 +82,16 @@ new Elysia({
             },
     };
   })
+  .use(
+    cors({
+      origin: (request) => {
+        const path = new URL(request.url).pathname;
+        if (path === "/assets" || path.startsWith("/assets/")) return true;
+        return checkCorsOrigin(request);
+      },
+      methods: ["GET", "POST"],
+    }),
+  )
   .use(publicStatic)
   .get("/", async ({ cookie, redirect, request }) => {
     const basePath = process.env.BASE_PATH || "";
@@ -93,4 +119,8 @@ await loadHeaders();
 await loadRatelimit();
 await loadCorsDefault();
 await loadFiltering();
+loadRswKeypair().catch((e) =>
+  console.warn("[cap] RSW keypair load:", e.message),
+);
+startRswRefresh();
 loadIPDB().catch((e) => console.warn("[cap] IP DB load:", e.message));

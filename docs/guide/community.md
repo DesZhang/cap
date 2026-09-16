@@ -1,3 +1,7 @@
+---
+description: "Community-maintained libraries for using Cap, the self-hosted open-source CAPTCHA, in more languages and frameworks. Verify proof-of-work tokens outside SDKs."
+---
+
 # Community libraries
 
 Want to use Cap without the standalone server and with a different language? Here are some community-maintained libraries that might help. If you want to add a library, feel free to open a pull request!
@@ -49,6 +53,8 @@ These are React hook implementations of the Cap API, allowing full customization
 
 - **[wuhunyu/cap-server-java](https://github.com/wuhunyu/cap-server-java)**
 
+- **[schwebke/cap-captcha-keycloak](https://github.com/schwebke/cap-captcha-keycloak)**: Keycloak extension providing Cap captcha validation for the registration flow
+
 ### Go
 
 - **[samwafgo/cap_go_server](https://github.com/samwafgo/cap_go_server)**
@@ -67,3 +73,15 @@ These are React hook implementations of the Cap API, allowing full customization
 
 - **[clysss/capito](https://github.com/clysss/capito)**: Capito Cap PHP Server
 - **[trilbymedia/cap-php](https://github.com/trilbymedia/cap-php)**: PHP port of the Cap proof-of-work captcha server
+- **[oliweb-proof-of-work-for-cap](https://github.com/oli217/oliweb-proof-of-work-for-cap)**: WordPress plugin integrating Cap into comments, login, registration and WooCommerce checkout — supports both visible widget and invisible (programmatic) mode
+- **[laravel-cap](https://github.com/oli217/laravel-cap)**: Laravel integration for Cap — Blade directives, middleware, validation rules and facade for server-side token verification (`composer require oliweb/laravel-cap`)
+- **[statamic-cap](https://github.com/oli217/statamic-cap)**: Statamic addon integrating Cap into forms — widget rendering, automatic token validation and flexible CP configuration (`composer require oliweb/statamic-cap`)
+- **[cap-captcha-wordpress](https://github.com/forge28labs/cap-captcha-wordpress)**: A WordPress plugin to integrate Cap into the auth flows, as well as on new comments. Configurable (instance, keys and colors) through the WordPress admin panel.
+
+## Client
+
+**Warning:** These libraries are community-maintained and not officially supported or actively monitored for security by Cap. We can't guarantee their quality, security, or compatibility.
+
+### JavaScript
+
+- **[cap-client](https://codeberg.org/sanin/cap-client)**: Client library and express middleware for making verification requests, intended for NodeJS

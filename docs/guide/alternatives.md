@@ -1,28 +1,39 @@
-# Alternatives to Cap
+---
+title: "CAPTCHA Comparison: Cap vs reCAPTCHA, Turnstile & More"
+description: "Compare Cap against reCAPTCHA, hCaptcha, Turnstile, Altcha and more. See how the open-source, self-hosted, proof-of-work CAPTCHA stacks up on privacy and cost."
+---
 
-| CAPTCHA              | Open-source | Free | Private | Fast to solve | Easy for humans | Small error rate | Checkpoints | Widget support | GDPR/CCPA Compliant | Customizable | Hard for bots | Easy to integrate |
-| :------------------- | :---------- | :--- | :------ | :------------ | :-------------- | :--------------- | :---------- | :------------- | :------------------ | :----------- | :------------ | :---------------- |
-| **Cap**              | ✅          | ✅   | ✅      | ✅            | ✅              | ✅               | ✅          | ✅             | ✅                  | ✅           | ✅            | ✅                |
-| Cloudflare Turnstile | ❌          | ✅   | 🟨      | 🟨            | ✅              | ❌               | 🟨          | ✅             | ✅                  | ❌           | 🟨            | ✅                |
-| reCAPTCHA            | ❌          | 🟨   | ❌      | ✅            | ❌              | 🟨               | ❌          | ✅             | 🟨                  | ❌           | ❌            | ✅                |
-| hCAPTCHA             | ❌          | 🟨   | 🟨      | ❌            | ❌              | 🟨               | ❌          | ✅             | 🟨                  | ❌           | 🟨            | ✅                |
-| Altcha               | ✅          | ✅   | ✅      | ✅            | ✅              | ✅               | ❌          | ✅             | ✅                  | ✅           | 🟨            | 🟨                |
-| FriendlyCaptcha      | ❌          | ❌   | ✅      | 🟨            | ✅              | ✅               | ❌          | ✅             | ✅                  | ✅           | 🟨            | 🟨                |
-| MTCaptcha            | ❌          | 🟨   | 🟨      | ❌            | ❌              | 🟨               | ❌          | ✅             | ✅                  | ❌           | ❌            | 🟨                |
-| GeeTest              | ❌          | ❌   | ❌      | 🟨            | 🟨              | 🟨               | ❌          | ✅             | ✅                  | ❌           | 🟨            | 🟨                |
-| Arkose Labs          | ❌          | ❌   | ❌      | ❌            | ❌              | ❌               | ❌          | ❌             | ✅                  | 🟨           | ❌            | 🟨                |
+# CAPTCHA Feature Comparison: Cap vs the Alternatives
+
+Cap is a free, open-source, self-hosted CAPTCHA alternative that uses proof-of-work and [instrumentation challenges](./instrumentation.md) instead of image puzzles. Here is how it compares to reCAPTCHA, hCaptcha, Cloudflare Turnstile, Altcha, FriendlyCaptcha, SilentShield, and others across 12 criteria.
+
+| CAPTCHA              | Open-source | Free | Private | Fast to solve | Easy for humans | Small error rate | GDPR compliant | Customizable | Hard for bots | Instrumentation | RSW support | Easy to integrate |
+| :------------------- | :---------- | :--- | :------ | :------------ | :-------------- | :--------------- | :------------- | :----------- | :------------ | :-------------- | :---------- | :---------------- |
+| **Cap**              | ✅          | ✅   | ✅      | ✅            | ✅              | ✅               | ✅             | ✅           | ✅            | ✅              | ✅          | ✅                |
+| Cloudflare Turnstile | ❌          | ✅   | 🟨      | 🟨            | ✅              | ❌               | ✅             | ❌           | ✅            | ✅              | 🟨          | ✅                |
+| reCAPTCHA            | ❌          | 🟨   | ❌      | ❌            | ❌              | 🟨               | 🟨             | ❌           | 🟨            | ✅              | 🟨          | ✅                |
+| hCAPTCHA             | ❌          | 🟨   | 🟨      | ❌            | ❌              | 🟨               | 🟨             | ❌           | 🟨            | ✅              | 🟨          | ✅                |
+| Altcha               | ✅          | ✅   | ✅      | ✅            | ✅              | ✅               | ✅             | ✅           | 🟨            | ❌              | ❌          | 🟨                |
+| FriendlyCaptcha      | ❌          | ❌   | ✅      | ✅            | ✅              | ✅               | ✅             | ✅           | ❌            | ❌              | ❌          | 🟨                |
+| SilentShield         | ❌          | 🟨   | 🟨      | ✅            | ✅              | 🟨               | ✅             | ❌           | 🟨            | ✅              | ❌          | ✅                |
+| MTCaptcha            | ❌          | 🟨   | 🟨      | ❌            | ❌              | 🟨               | ✅             | ❌           | ❌            | ❌              | ❌          | 🟨                |
+| GeeTest              | ❌          | ❌   | ❌      | 🟨            | 🟨              | 🟨               | ✅             | ❌           | 🟨            | ❌              | ❌          | 🟨                |
+| Arkose Labs          | ❌          | ❌   | ❌      | ❌            | ❌              | ❌               | ✅             | 🟨           | 🟨            | 🟨              | 🟨          | 🟨                |
+
+One criterion Cap deliberately fails: there is no managed hosting. If you refuse to run any infrastructure at all, Cloudflare Turnstile or FriendlyCaptcha is a better fit.
 
 ::: tip Note
 
-"Hard for bots" for Cap refers to the combination of Proof-of-Work and [dynamic instrumentation challenges](./standalone/options.md#instrumentation-challenges). It does not consider commercial solvers like BrightData, as I cannot verify their legitimacy myself.
+Based on internal testing, Cap achieved lower challenge abandonment rates and higher privacy-browser compatibility than competing solutions.
 
+"Hard for bots" refers to resistance against commodity automation, including headless browsers, scripted attacks, and self-operated bot networks. For Cap, this is primarily provided by PoW and instrumentation. This category does not consider commercial CAPTCHA-solving services or human-assisted solver platforms, as their effectiveness is difficult to independently verify.
 :::
 
 ## All alternatives
 
 ### Cloudflare Turnstile
 
-Cloudflare Turnstile is a great alternative to Cap, but unfortunately, it is known for having an extremely high error rate and relies a lot on fingerprinting, especially for users using private browsers such as Brave or Librewolf.
+Cloudflare Turnstile is a great alternative to Cap, but it is widely reported to fail or loop for users on privacy browsers such as Brave or Librewolf, because its verdicts rely on fingerprinting signals those browsers deliberately break.
 
 Additionally, unlike Turnstile, Cap is open-source and self-hosted. With Turnstile, if Cloudflare's algorithm marks a user as "suspicious," you cannot override it. Cap puts the levers of control in your hands, so you decide the difficulty and strictness, not a third party.
 
@@ -52,13 +63,21 @@ Cap is slightly smaller than Altcha and includes extra features like progress tr
 
 ### mCAPTCHA
 
-While mCAPTCHA is similar to both Cap and Altcha, it seems to have been deprecated and has a significantly larger widget bundle.
+While mCAPTCHA is similar to both Cap and Altcha, it is still pre-1.0 with infrequent releases and has a larger widget bundle.
 
 ### FriendlyCaptcha
 
 Unlike FriendlyCaptcha, Cap is completely free and self-hosted at any volume (FriendlyCaptcha's Starter plan is €9/month for 1,000 requests/month, with higher tiers as you scale).
 
 [Full comparison: Cap vs FriendlyCaptcha →](./alternatives/friendlycaptcha.md)
+
+### SilentShield
+
+SilentShield is a hosted, invisible bot-protection service that scores mouse, keyboard, and scroll behavior instead of running a challenge. It's convenient on WordPress, but it's closed-source, can't be self-hosted, and its free tier caps at 500 requests/month (paid tiers from €9/month for 5,000 requests).
+
+Cap imposes a real computational cost on bots rather than guessing from behavior, is fully open-source, and is free at any volume on your own infrastructure.
+
+[Full comparison: Cap vs SilentShield →](./alternatives/silentshield.md)
 
 ### MTCaptcha
 
@@ -81,3 +100,11 @@ While Anubis is a great scraper deterrent and uses the same proof-of-work concep
 Cap also implements dynamic instrumentation challenges, which make it harder for bots to finish the process after solving PoW.
 
 [Full comparison: Cap vs Anubis →](./alternatives/anubis.md)
+
+## Related guides
+
+- [Best CAPTCHA alternatives in 2026](./best-captcha-alternatives.md): the full field, ranked with criteria
+- [Open-source CAPTCHA options](./open-source-captcha.md): Cap, ALTCHA, mCAPTCHA, and Anubis compared
+- [CAPTCHA and conversion rate](./captcha-conversion-rate.md): how challenges cost you signups
+- [Bot protection for mobile forms](./mobile-form-bot-protection.md): puzzle-free protection on touch devices
+- [Migrate from reCAPTCHA](./alternatives/migrate-from-recaptcha.md): the URL-swap migration path

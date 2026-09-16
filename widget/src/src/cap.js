@@ -8,6 +8,31 @@
     return;
   }
 
+  const _ctp = ["#f5c2e7","#cba6f7","#f38ba8","#fab387","#f9e2af","#a6e3a1","#94e2d5","#89dceb","#b4befe"];
+  const _bg = (s) => {
+    if (s === "cap") return "#89b4fa";
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
+    return _ctp[Math.abs(h) % _ctp.length];
+  };
+  const _style = (t, i, n) => {
+    const l = i === 0 ? "9999px" : "0";
+    const r = i === n - 1 ? "9999px" : "0";
+    return `color:#1e1e2e;background:${_bg(t)};margin-left:${i ? "-6px" : 0};padding:0 6px;border-radius:${l} ${r} ${r} ${l};font-weight:600`;
+  };
+  const log = {};
+  for (const lvl of ["debug", "info", "warn", "error"]) {
+    log[lvl] = (tags, ...args) => {
+      if (window.CAP_SILENT || (lvl === "debug" && !window.CAP_DEBUG)) return;
+      const fmt = tags.map((t) => `%c${t}`).join(" ");
+      const styles = tags.map((t, i) => _style(t, i, tags.length));
+      console[lvl === "debug" ? "log" : lvl](fmt, ...styles, ...args);
+    };
+  }
+  const T = (sub) => (sub ? ["cap", sub] : ["cap"]);
+  const since = (t) => `${Math.round(performance.now() - t)}ms`;
+  const _err = (code, message) => Object.assign(new Error(message), { code });
+
   const capFetch = (u, conf = {}) => {
     if (window?.CAP_CUSTOM_FETCH) {
       return window.CAP_CUSTOM_FETCH(u, conf);
@@ -15,6 +40,48 @@
 
     return fetch(u, conf);
   };
+
+  const raceAbort = (promise, signal) => {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(_err("aborted", "aborted"));
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        signal.addEventListener(
+          "abort",
+          () => reject(_err("aborted", "aborted")),
+          { once: true },
+        ),
+      ),
+    ]);
+  };
+
+  const I18N_KEYS = "%%i18nKeys%%".split(",");
+  const I18N_ROWS = %%i18nData%%;
+
+  function _resolveI18nMap(forced) {
+    const prefs = forced
+      ? [forced]
+      : navigator.languages || [navigator.language || ""];
+    for (let pref of prefs) {
+      if (!pref) continue;
+      pref = pref.toLowerCase();
+      if (pref === "en" || pref.startsWith("en-")) return null;
+      const code = I18N_ROWS[pref]
+        ? pref
+        : I18N_ROWS[pref.split("-")[0]]
+          ? pref.split("-")[0]
+          : null;
+      if (!code) return null;
+      const parts = I18N_ROWS[code].split("/");
+      const map = {};
+      I18N_KEYS.forEach((k, i) => {
+        map[k] = parts[i];
+      });
+      return map;
+    }
+    return null;
+  }
 
   function prng(seed, length) {
     function fnv1a(str) {
@@ -78,17 +145,18 @@
         const url =
           window.CAP_PAKO_URL ||
           "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako_inflate.min.js";
+        log.debug(T("instr"), "DecompressionStream unavailable, loading pako from", url);
         const script = document.createElement("script");
         script.src = url;
         const pakoNonce = window.CAP_SCRIPT_NONCE || window.CAP_CSS_NONCE;
         if (pakoNonce) script.setAttribute("nonce", pakoNonce);
         script.onload = () => {
           if (window.pako?.inflateRaw) resolve(window.pako);
-          else reject(new Error("[cap] pako loaded but inflateRaw is missing"));
+          else reject(new Error("pako loaded but inflateRaw is missing"));
         };
         script.onerror = () => {
           _pakoPromise = null;
-          reject(new Error(`[cap] failed to load pako fallback from ${url}`));
+          reject(new Error(`failed to load pako fallback from ${url}`));
         };
         document.head.appendChild(script);
       });
@@ -178,14 +246,21 @@
       window.CAP_CUSTOM_WASM_URL ||
       `https://cdn.jsdelivr.net/npm/@cap.js/wasm@${WASM_VERSION}/browser/cap_wasm_bg.wasm`;
 
+    const t0 = performance.now();
+    log.debug(T("wasm"), "fetching", wasmUrl);
     wasmModulePromise = fetch(wasmUrl)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to fetch wasm: ${r.status}`);
         return r.arrayBuffer();
       })
       .then((buf) => WebAssembly.compile(buf))
+      .then((mod) => {
+        log.debug(T("wasm"), `ready in ${since(t0)}`);
+        return mod;
+      })
       .catch((e) => {
         wasmModulePromise = null;
+        log.warn(T("wasm"), `load failed (${since(t0)}):`, e.message || e);
         throw e;
       });
 
@@ -251,8 +326,9 @@
       } catch {}
 
       this._spawnFailures++;
+      log.warn(T("pool"), `worker died, replacing (attempt ${this._spawnFailures}/3)`);
       if (this._spawnFailures > 3) {
-        console.error("[cap] worker spawn failed repeatedly, not retrying");
+        log.error(T("pool"), "worker spawn failed repeatedly, giving up");
         return null;
       }
 
@@ -270,15 +346,31 @@
       });
     }
 
+    runMsg(msg, onProgress) {
+      return new Promise((resolve, reject) => {
+        this._queue.push({ msg, onProgress, resolve, reject });
+        this._dispatch();
+      });
+    }
+
     _dispatch() {
       while (this._idle.length > 0 && this._queue.length > 0) {
         const worker = this._idle.shift();
-        const { salt, target, resolve, reject } = this._queue.shift();
+        const task = this._queue.shift();
+        const { resolve, reject } = task;
+        const isMsg = task.msg !== undefined;
 
         let settled = false;
 
         const onMessage = ({ data }) => {
           if (settled) return;
+
+          if (data && typeof data.progress === "number" && !data.found) {
+            if (task.onProgress) {
+              try { task.onProgress(data.progress); } catch {}
+            }
+            return;
+          }
           settled = true;
           worker.removeEventListener("message", onMessage);
           worker.removeEventListener("error", onError);
@@ -287,7 +379,7 @@
           if (!data.found) {
             reject(new Error(data.error || "worker failed"));
           } else {
-            resolve(data.nonce);
+            resolve(isMsg ? data : data.nonce);
           }
           this._dispatch();
         };
@@ -307,13 +399,15 @@
         worker.addEventListener("message", onMessage);
         worker.addEventListener("error", onError);
 
-        if (this._wasmModule) {
+        if (isMsg) {
+          worker.postMessage(task.msg);
+        } else if (this._wasmModule) {
           worker.postMessage(
-            { salt, target, wasmModule: this._wasmModule },
+            { salt: task.salt, target: task.target, wasmModule: this._wasmModule },
             [],
           );
         } else {
-          worker.postMessage({ salt, target });
+          worker.postMessage({ salt: task.salt, target: task.target });
         }
       }
     }
@@ -349,6 +443,8 @@
     #speculativeTimer = null;
     #speculativePool = null;
     #interactionHandler = null;
+    #i18n = null;
+    #abort = null;
 
     get #hasHaptics() {
       return (
@@ -420,8 +516,11 @@
           checkVisibilityCSS: true,
         });
       }
-      // Fallback: offsetParent is null for display:none; also check the style directly
       return !!(this.offsetParent || this.getClientRects().length > 0);
+    }
+
+    #logInvisible() {
+      if (!this.#isVisible()) log.info(T("challenges"), "solved invisible challenge");
     }
 
     #onFirstInteraction() {
@@ -436,6 +535,7 @@
     async #beginSpeculativeSolve() {
       if (this.#speculative.state !== "waiting") return;
       this.#speculative.state = "fetching";
+      this.#speculative._t0 = performance.now();
 
       let apiEndpoint = this.getAttribute("data-cap-api-endpoint");
       if (!apiEndpoint && window?.CAP_CUSTOM_FETCH) {
@@ -450,6 +550,7 @@
       try {
         const raw = await capFetch(`${apiEndpoint}challenge`, {
           method: "POST",
+          signal: this.#abort?.signal,
         });
         let resp;
         try {
@@ -458,9 +559,16 @@
           throw new Error("Failed to parse speculative challenge response");
         }
         if (resp.error) throw new Error(resp.error);
+        if (!this.#speculative) return;
 
         resp._apiEndpoint = apiEndpoint;
         this.#speculative.challengeResp = resp;
+
+        if (resp.format === 2 && Array.isArray(resp.challenges)) {
+          this.#speculative.state = "idle";
+          this.#speculative.notify();
+          return;
+        }
 
         const { challenge, token } = resp;
         let challenges = challenge;
@@ -477,9 +585,15 @@
         this.#speculative.challenges = challenges;
         this.#speculative.state = "solving";
 
-        this.#speculative.solvePromise = this.#speculativeSolveAll(challenges);
-      } catch (e) {
-        console.warn("[cap] speculative challenge fetch failed:", e);
+        this.#speculative.solvePromise = this.#speculativeSolveAll(
+          challenges,
+        ).catch(() => {
+          if (!this.#speculative) return;
+          this.#speculative.state = "error";
+          this.#speculative.notify();
+        });
+      } catch {
+        if (!this.#speculative) return;
         this.#speculative.state = "error";
         this.#speculative.notify();
       }
@@ -493,6 +607,7 @@
         wasmModule = await getWasmModule();
       } catch {}
 
+      if (!this.#speculative) return [];
       if (!this.#speculativePool) {
         this.#speculativePool = new WorkerPool(1);
         this.#speculativePool._spawn();
@@ -506,7 +621,7 @@
       let promoted = false;
 
       this.#speculative.promoteFn = (fullCount) => {
-        if (promoted) return;
+        if (promoted || !this.#speculativePool) return;
         promoted = true;
         concurrency = fullCount;
         this.#speculativePool._size = fullCount;
@@ -521,6 +636,7 @@
       let nextIndex = 0;
 
       while (nextIndex < total) {
+        if (!this.#speculative || !this.#speculativePool) return results;
         const batchSize = concurrency;
         const batch = [];
         const batchIndices = [];
@@ -538,7 +654,7 @@
             this.#speculativePool
               .run(challenge[0], challenge[1])
               .then((nonce) => {
-                this.#speculative.completedCount++;
+                if (this.#speculative) this.#speculative.completedCount++;
                 return nonce;
               }),
           ),
@@ -555,6 +671,7 @@
         }
       }
 
+      if (!this.#speculative) return results;
       this.#speculative.results = results;
       this.#speculative.state = "redeeming";
       this.#speculativeRedeem(results);
@@ -563,16 +680,18 @@
 
     async #speculativeRedeem(solutions) {
       try {
+        if (!this.#speculative) return;
         const challengeResp = this.#speculative.challengeResp;
         const apiEndpoint = challengeResp._apiEndpoint;
         if (!apiEndpoint)
-          throw new Error("[cap] speculative redeem: missing apiEndpoint");
+          throw _err("missing_endpoint", "speculative redeem: missing apiEndpoint");
 
         let instrOut = null;
         if (challengeResp.instrumentation) {
           instrOut = await runInstrumentationChallenge(
             challengeResp.instrumentation,
           );
+          if (!this.#speculative) return;
           if (instrOut?.__timeout || instrOut?.__blocked) {
             this.#speculative.state = "done";
             this.#speculative.notify();
@@ -588,6 +707,7 @@
             ...(instrOut && { instr: instrOut }),
           }),
           headers: { "Content-Type": "application/json" },
+          signal: this.#abort?.signal,
         });
 
         let resp;
@@ -597,25 +717,71 @@
           throw new Error("Failed to parse speculative redeem response");
         }
 
+        if (!this.#speculative) return;
         if (!resp.success)
           throw new Error(resp.error || "Speculative redeem failed");
 
         this.#speculative.token = resp.token;
         this.#speculative.tokenExpires = new Date(resp.expires).getTime();
         this.#speculative.state = "done";
+        this.#speculative._invisibleElapsed = this.#speculative._t0 ? since(this.#speculative._t0) : "?";
         this.#speculative.notify();
-      } catch (e) {
-        console.warn(
-          "[cap] speculative redeem failed (will redo on click):",
-          e,
-        );
+      } catch {
+        if (!this.#speculative) return;
         this.#speculative.state = "done";
         this.#speculative.notify();
       }
     }
 
+    get #fieldName() {
+      return this.getAttribute("data-cap-hidden-field-name") || "cap-token";
+    }
+
+    #setToken(value) {
+      const input = this.querySelector(`input[name='${this.#fieldName}']`);
+      if (input) input.value = value;
+    }
+
     getI18nText(key, defaultValue) {
-      return this.getAttribute(`data-cap-i18n-${key}`) || defaultValue;
+      return (
+        this.getAttribute(`data-cap-i18n-${key}`) ||
+        this.#i18n?.[key] ||
+        defaultValue
+      );
+    }
+
+    #commitSpeculativeToken() {
+      log.debug(T("solve"), `served from speculative cache (saved ${this.#speculative._invisibleElapsed || "?"})`);
+      this.dispatchEvent("progress", { progress: 100 });
+
+      this.#setToken(this.#speculative.token);
+
+      this.dispatchEvent("solve", { token: this.#speculative.token });
+      this.token = this.#speculative.token;
+
+      const expiresIn = this.#speculative.tokenExpires - Date.now();
+      if (this.#resetTimer) clearTimeout(this.#resetTimer);
+      this.#resetTimer = setTimeout(() => this.reset(), expiresIn);
+
+      this.#trigger.setAttribute(
+        "aria-label",
+        this.getI18nText(
+          "verified-aria-label",
+          "We have verified you're a human, you may now continue",
+        ),
+      );
+      if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
+
+      this.#logInvisible();
+      this.#resetSpeculativeState();
+      this.#solving = false;
+      return { success: true, token: this.token };
+    }
+
+    #resolveI18n() {
+      this.#i18n = _resolveI18nMap(
+        window.CAP_LANG || this.getAttribute("data-cap-lang"),
+      );
     }
 
     static get observedAttributes() {
@@ -664,6 +830,7 @@
 
     initialize() {
       _getSharedWorkerUrl();
+      this.#abort = new AbortController();
       if (!this.#speculative) {
         this.#speculative = this.#makeSpeculativeState();
       }
@@ -722,6 +889,7 @@
       }
 
       if (!this.#div) this.#div = document.createElement("div");
+      this.#resolveI18n();
       this.createUI();
       this.addEventListeners();
       this.initialize();
@@ -730,10 +898,9 @@
       const workers = this.getAttribute("data-cap-worker-count");
       const parsedWorkers = workers ? parseInt(workers, 10) : null;
       this.setWorkersCount(parsedWorkers || navigator.hardwareConcurrency || 8);
-      const fieldName =
-        this.getAttribute("data-cap-hidden-field-name") || "cap-token";
-      this.#host.innerHTML = `<input type="hidden" name="${fieldName}">`;
+      this.#host.innerHTML = `<input type="hidden" name="${this.#fieldName}">`;
 
+      log.debug(T(), `widget ready (workers=${this.#workersCount}, haptics=${this.#hasHaptics})`);
       this.#attachInteractionListeners();
       this.#updateValidity();
 
@@ -758,6 +925,11 @@
         return;
       }
 
+      this.#enforceCredits();
+      const _solveT0 = performance.now();
+      const signal = this.#abort?.signal;
+      log.debug(T("solve"), "starting");
+
       try {
         this.#solving = true;
         this.updateUI(
@@ -779,7 +951,8 @@
           if (!apiEndpoint && window?.CAP_CUSTOM_FETCH) {
             apiEndpoint = "/";
           } else if (!apiEndpoint) {
-            throw new Error(
+            throw _err(
+              "missing_endpoint",
               "Missing API endpoint. Either custom fetch or an API endpoint must be provided.",
             );
           }
@@ -794,33 +967,7 @@
             this.#speculative.tokenExpires &&
             Date.now() < this.#speculative.tokenExpires
           ) {
-            this.dispatchEvent("progress", { progress: 100 });
-
-            const fieldName =
-              this.getAttribute("data-cap-hidden-field-name") || "cap-token";
-            if (this.querySelector(`input[name='${fieldName}']`)) {
-              this.querySelector(`input[name='${fieldName}']`).value =
-                this.#speculative.token;
-            }
-            this.dispatchEvent("solve", { token: this.#speculative.token });
-            this.token = this.#speculative.token;
-
-            const expiresIn = this.#speculative.tokenExpires - Date.now();
-            if (this.#resetTimer) clearTimeout(this.#resetTimer);
-            this.#resetTimer = setTimeout(() => this.reset(), expiresIn);
-
-            this.#trigger.setAttribute(
-              "aria-label",
-              this.getI18nText(
-                "verified-aria-label",
-                "We have verified you're a human, you may now continue",
-              ),
-            );
-            if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
-
-            this.#resetSpeculativeState();
-            this.#solving = false;
-            return { success: true, token: this.token };
+            return this.#commitSpeculativeToken();
           }
 
           if (this.#speculative.state === "done") {
@@ -848,6 +995,10 @@
             }
 
             const progressInterval = setInterval(() => {
+              if (signal?.aborted || !this.#speculative) {
+                clearInterval(progressInterval);
+                return;
+              }
               const st = this.#speculative.state;
               if (st === "done" || st === "error") {
                 clearInterval(progressInterval);
@@ -870,73 +1021,77 @@
               this.#speculative.onSettled(resolve),
             );
             clearInterval(progressInterval);
+            if (signal?.aborted || !this.#speculative) return;
 
-            if (this.#speculative.state !== "done") {
-              throw new Error("Speculative solve failed – please try again");
-            }
+            if (
+              this.#speculative.state === "idle" &&
+              this.#speculative.challengeResp?.format === 2 &&
+              Array.isArray(this.#speculative.challengeResp.challenges)
+            ) {
+              challengeResp = this.#speculative.challengeResp;
+              this.#speculative.challengeResp = null;
+              solutions = await this.solveChallengesV2(
+                challengeResp.challenges,
+                signal,
+              );
+            } else {
+              if (this.#speculative.state !== "done") {
+                throw _err("solve_failed", "Unable to solve challenge, self-hosted instance likely down. This is not an issue with Cap.");
+              }
 
             if (
               this.#speculative.token &&
               this.#speculative.tokenExpires &&
               Date.now() < this.#speculative.tokenExpires
             ) {
-              this.dispatchEvent("progress", { progress: 100 });
-
-              const fieldName =
-                this.getAttribute("data-cap-hidden-field-name") || "cap-token";
-              if (this.querySelector(`input[name='${fieldName}']`)) {
-                this.querySelector(`input[name='${fieldName}']`).value =
-                  this.#speculative.token;
-              }
-              this.dispatchEvent("solve", { token: this.#speculative.token });
-              this.token = this.#speculative.token;
-
-              const expiresIn = this.#speculative.tokenExpires - Date.now();
-              if (this.#resetTimer) clearTimeout(this.#resetTimer);
-              this.#resetTimer = setTimeout(() => this.reset(), expiresIn);
-
-              this.#trigger.setAttribute(
-                "aria-label",
-                this.getI18nText(
-                  "verified-aria-label",
-                  "We have verified you're a human, you may now continue",
-                ),
-              );
-              if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
-
-              this.#resetSpeculativeState();
-              this.#solving = false;
-              return { success: true, token: this.token };
+              return this.#commitSpeculativeToken();
             }
 
             solutions = this.#speculative.results;
             challengeResp = this.#speculative.challengeResp;
             this.dispatchEvent("progress", { progress: 100 });
+            }
           } else {
-            const challengeRaw = await capFetch(`${apiEndpoint}challenge`, {
-              method: "POST",
-            });
-            try {
-              challengeResp = await challengeRaw.json();
-            } catch {
-              throw new Error("Failed to parse challenge response from server");
-            }
-            if (challengeResp.error) throw new Error(challengeResp.error);
-
-            const { challenge, token } = challengeResp;
-            let challenges = challenge;
-            if (!Array.isArray(challenges)) {
-              let i = 0;
-              challenges = Array.from({ length: challenge.c }, () => {
-                i++;
-                return [
-                  prng(`${token}${i}`, challenge.s),
-                  prng(`${token}${i}d`, challenge.d),
-                ];
+            const cached = this.#speculative.challengeResp;
+            if (cached?.format === 2 && Array.isArray(cached.challenges)) {
+              challengeResp = cached;
+              this.#speculative.challengeResp = null;
+            } else {
+              const challengeRaw = await capFetch(`${apiEndpoint}challenge`, {
+                method: "POST",
+                signal,
               });
+              try {
+                challengeResp = await challengeRaw.json();
+              } catch {
+                throw _err("challenge_parse_error", "Failed to parse challenge response from server");
+              }
+              if (challengeResp.error) throw _err("network_error", challengeResp.error);
             }
 
-            solutions = await this.solveChallenges(challenges);
+            if (
+              challengeResp.format === 2 &&
+              Array.isArray(challengeResp.challenges)
+            ) {
+              solutions = await this.solveChallengesV2(
+                challengeResp.challenges,
+                signal,
+              );
+            } else {
+              const { challenge, token } = challengeResp;
+              let challenges = challenge;
+              if (!Array.isArray(challenges)) {
+                let i = 0;
+                challenges = Array.from({ length: challenge.c }, () => {
+                  i++;
+                  return [
+                    prng(`${token}${i}`, challenge.s),
+                    prng(`${token}${i}d`, challenge.d),
+                  ];
+                });
+              }
+              solutions = await this.solveChallenges(challenges, signal);
+            }
           }
 
           const instrPromise = challengeResp.instrumentation
@@ -944,8 +1099,21 @@
             : Promise.resolve(null);
 
           const instrOut = await instrPromise;
+          if (signal?.aborted || !this.#speculative) return;
 
           if (instrOut?.__timeout || instrOut?.__blocked) {
+            capFetch(`${apiEndpoint}redeem`, {
+              method: "POST",
+              body: JSON.stringify({
+                token: challengeResp.token,
+                solutions,
+                ...(instrOut.__blocked && { instr_blocked: true }),
+                ...(instrOut.__timeout && { instr_timeout: true }),
+              }),
+              headers: { "Content-Type": "application/json" },
+              signal,
+            }).catch(() => {});
+
             this.updateUIBlocked(
               this.getI18nText("error-label", "Error"),
               instrOut?.__blocked,
@@ -957,16 +1125,20 @@
                 "An error occurred, please try again",
               ),
             );
+            const instrCode = instrOut?.__blocked ? "instr_blocked" : "instr_timeout";
+            const instrMsg = instrOut?.__blocked
+              ? `Instrumentation blocked (${instrOut.blockReason || "automated_browser"})`
+              : "Instrumentation timed out";
             this.removeEventListener("error", this.boundHandleError);
             const errEvent = new CustomEvent("error", {
               bubbles: true,
               composed: true,
-              detail: { isCap: true, message: "Instrumentation failed" },
+              detail: { isCap: true, code: instrCode, message: instrMsg },
             });
             super.dispatchEvent(errEvent);
             this.addEventListener("error", this.boundHandleError);
             this.executeAttributeCode("onerror", errEvent);
-            console.error("[cap]", "Instrumentation failed");
+            log.error(T("instr"), `[${instrCode}] ${instrMsg}`);
             this.#solving = false;
             return;
           }
@@ -981,23 +1153,22 @@
               ...(instrOut && { instr: instrOut }),
             }),
             headers: { "Content-Type": "application/json" },
+            signal,
           });
 
           let resp;
           try {
             resp = await redeemResponse.json();
           } catch {
-            throw new Error("Failed to parse server response");
+            throw _err("redeem_failed", "Failed to parse server response");
           }
+
+          if (signal?.aborted || !this.#speculative) return;
 
           this.dispatchEvent("progress", { progress: 100 });
-          if (!resp.success) throw new Error(resp.error || "Invalid solution");
+          if (!resp.success) throw _err("invalid_solution", resp.error || "Invalid solution");
 
-          const fieldName =
-            this.getAttribute("data-cap-hidden-field-name") || "cap-token";
-          if (this.querySelector(`input[name='${fieldName}']`)) {
-            this.querySelector(`input[name='${fieldName}']`).value = resp.token;
-          }
+          this.#setToken(resp.token);
 
           this.dispatchEvent("solve", { token: resp.token });
           this.token = resp.token;
@@ -1009,7 +1180,7 @@
           if (expiresIn > 0 && expiresIn < 24 * 60 * 60 * 1000) {
             this.#resetTimer = setTimeout(() => this.reset(), expiresIn);
           } else {
-            this.error("Invalid expiration time");
+            this.error("Invalid expiration time", "invalid_expires");
           }
 
           this.#trigger.setAttribute(
@@ -1021,8 +1192,11 @@
           );
           if (this.#hasHaptics) navigator.vibrate([10, 50, 20, 30, 40]);
 
+          log.debug(T("solve"), `verified in ${since(_solveT0)}`);
+          this.#logInvisible();
           return { success: true, token: this.token };
         } catch (err) {
+          if (signal?.aborted || !this.#speculative) return;
           this.#trigger.setAttribute(
             "aria-label",
             this.getI18nText(
@@ -1030,7 +1204,7 @@
               "An error occurred, please try again",
             ),
           );
-          this.error(err.message);
+          this.error(err.message, err.code || "solve_failed");
           throw err;
         }
       } finally {
@@ -1038,7 +1212,106 @@
       }
     }
 
-    async solveChallenges(challenges) {
+    async solveChallengesV2(challenges, signal) {
+      const total = challenges.length;
+      let completed = 0;
+
+      const solutions = new Array(challenges.length);
+      for (let i = 0; i < challenges.length; i++) {
+        const ch = challenges[i];
+        if (
+          !ch ||
+          typeof ch !== "object" ||
+          !(
+            ch.protocol === "sha256-pow" ||
+            ch.protocol === "rsw" ||
+            ch.protocol === "instrumentation"
+          )
+        ) {
+          // Unknown protocol = older widget on a newer server. Fall back to
+          // erroring out -- the host can detect this and serve format-1.
+          throw _err("challenge_unsupported", `unsupported format-2 protocol '${ch?.protocol}'`);
+        }
+      }
+
+      let wasmModule = null;
+      const wasmSupported =
+        typeof WebAssembly === "object" &&
+        typeof WebAssembly.instantiate === "function";
+      if (wasmSupported) {
+        try { wasmModule = await getWasmModule(); }
+        catch (e) { log.warn(T("wasm"), "unavailable, falling back to JS solver:", e.message || e); }
+      }
+
+      const poolSize = Math.max(1, Math.min(this.#workersCount, challenges.length));
+      const pool = new WorkerPool(poolSize);
+      pool.setWasm(wasmModule);
+      pool._ensureSize(poolSize);
+
+      const TASK_TIMEOUT_MS = 60_000;
+      const withTimeout = (promise, label) => Promise.race([
+        promise,
+        new Promise((_, rej) => setTimeout(
+          () => rej(new Error(`[cap] ${label} timed out after ${TASK_TIMEOUT_MS}ms`)),
+          TASK_TIMEOUT_MS,
+        )),
+      ]);
+
+      const inFlight = new Array(challenges.length).fill(0);
+      const emit = () => {
+        const sum = inFlight.reduce((a, b) => a + b, 0) + completed;
+        const visual = Math.min(99, Math.round((sum / total) * 100));
+        this.dispatchEvent("progress", { progress: visual });
+      };
+
+      try {
+        await raceAbort(Promise.all(
+          challenges.map((ch, idx) => {
+            if (ch.protocol === "sha256-pow") {
+              return withTimeout(
+                pool.run(ch.payload.salt, ch.payload.target),
+                `sha256-pow worker #${idx}`,
+              ).then((nonce) => {
+                solutions[idx] = { nonce: Number(nonce) };
+                inFlight[idx] = 0;
+                completed++;
+                emit();
+              });
+            }
+
+            if (ch.protocol === "rsw") {
+              return withTimeout(
+                pool.runMsg(
+                  { kind: "rsw", N: ch.payload.N, x: ch.payload.x, t: ch.payload.t | 0 },
+                  (p) => { inFlight[idx] = p; emit(); },
+                ),
+                `rsw worker #${idx}`,
+              ).then((data) => {
+                solutions[idx] = { y: data.y };
+                inFlight[idx] = 0;
+                completed++;
+                emit();
+              });
+            }
+            
+            return runInstrumentationChallenge(ch.payload.blob).then((out) => {
+              if (out?.__timeout) solutions[idx] = { timeout: true };
+              else if (out?.__blocked) solutions[idx] = { blocked: true };
+              else solutions[idx] = { instr: out };
+              inFlight[idx] = 0;
+              completed++;
+              emit();
+            });
+          }),
+        ), signal);
+      } finally {
+        pool.terminate();
+      }
+
+      return solutions;
+    }
+
+    async solveChallenges(challenges, signal) {
       const total = challenges.length;
       let completed = 0;
 
@@ -1053,11 +1326,12 @@
         try {
           wasmModule = await getWasmModule();
         } catch (e) {
-          console.warn("[cap] wasm unavailable, falling back to JS solver:", e);
+          log.warn(T("wasm"), "unavailable, falling back to JS solver:", e.message || e);
         }
       }
 
       if (!wasmSupported) {
+        log.warn(T("wasm"), "WebAssembly disabled in this browser, solver will be ~10x slower");
         if (!this.#shadow.querySelector(".warning")) {
           const warningEl = document.createElement("div");
           warningEl.className = "warning";
@@ -1085,7 +1359,7 @@
             i,
             Math.min(i + this.#workersCount, challenges.length),
           );
-          const chunkResults = await Promise.all(
+          const chunkResults = await raceAbort(Promise.all(
             chunk.map(([salt, target]) =>
               pool.run(salt, target).then((nonce) => {
                 completed++;
@@ -1097,7 +1371,7 @@
                 return nonce;
               }),
             ),
-          );
+          ), signal);
           results.push(...chunkResults);
         }
       } finally {
@@ -1153,7 +1427,6 @@
 
       this.#credits = document.createElement("a");
       this.#credits.className = "credits";
-      this.#credits.setAttribute("part", "attribution");
       this.#credits.setAttribute("aria-label", "Secured by Cap");
       this.#credits.setAttribute("href", "https://trycap.dev");
       this.#credits.setAttribute("target", "_blank");
@@ -1167,6 +1440,9 @@
       this.#shadow.innerHTML = `<style${window.CAP_CSS_NONCE ? ` nonce=${window.CAP_CSS_NONCE}` : ""}>%%capCSS%%</style>`;
 
       this.#shadow.appendChild(this.#div);
+
+      this.#enforceCredits();
+      setTimeout(() => this.#enforceCredits(), 100);
     }
 
     addEventListeners() {
@@ -1218,6 +1494,39 @@
       this.addEventListener("solve", this.boundHandleSolve);
       this.addEventListener("error", this.boundHandleError);
       this.addEventListener("reset", this.boundHandleReset);
+    }
+
+    #hostIsHidden() {
+      if (!this.#host) return false;
+      const rect = this.#host.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return true;
+      const cs = window.getComputedStyle(this.#host);
+      if (cs.display === "none" || cs.visibility === "hidden") return true;
+      return false;
+    }
+
+    #enforceCredits() {
+      if (!this.#credits || !this.#div || this.#hostIsHidden()) return;
+      if (!this.#credits.isConnected || this.#credits.parentNode !== this.#div) {
+        this.#div.appendChild(this.#credits);
+      }
+      if (!this.#credits.textContent || !this.#credits.textContent.trim()) {
+        this.#credits.textContent = "Cap";
+      }
+      if (this.#credits.getAttribute("href") !== "https://trycap.dev") {
+        this.#credits.setAttribute("href", "https://trycap.dev");
+      }
+      this.#credits.style.cssText = [
+        "display: inline-flex !important",
+        "visibility: visible !important",
+        "opacity: 0.8 !important",
+        "pointer-events: all !important",
+        "font-size: 12px !important",
+        "transform: none !important",
+        "clip-path: none !important",
+        "filter: none !important",
+        "position: absolute !important",
+      ].join("; ");
     }
 
     animateLabel(text) {
@@ -1359,16 +1668,17 @@
         return;
       }
 
-      console.error(
-        "[cap] using `onxxx='…'` is strongly discouraged and will be deprecated soon. please use `addEventListener` callbacks instead.",
+      log.warn(
+        T(),
+        "inline `onxxx='…'` handlers are deprecated. use `addEventListener` callbacks instead.",
       );
 
       new Function("event", code).call(this, event);
     }
 
-    error(message = "Unknown error") {
-      console.error("[cap]", message);
-      this.dispatchEvent("error", { isCap: true, message });
+    error(message = "Unknown error", code = "unknown") {
+      log.error(T("solve"), `[${code}] ${message}`);
+      this.dispatchEvent("error", { isCap: true, code, message });
     }
 
     dispatchEvent(eventName, detail = {}) {
@@ -1387,11 +1697,7 @@
       }
       this.token = null;
       this.dispatchEvent("reset");
-      const fieldName =
-        this.getAttribute("data-cap-hidden-field-name") || "cap-token";
-      if (this.querySelector(`input[name='${fieldName}']`)) {
-        this.querySelector(`input[name='${fieldName}']`).value = "";
-      }
+      this.#setToken("");
     }
 
     get tokenValue() {
@@ -1399,6 +1705,7 @@
     }
 
     disconnectedCallback() {
+      this.#abort?.abort();
       this.removeEventListener("progress", this.boundHandleProgress);
       this.removeEventListener("solve", this.boundHandleSolve);
       this.removeEventListener("error", this.boundHandleError);
@@ -1486,8 +1793,9 @@
   if (!customElements.get("cap-widget") && !window?.CAP_DONT_SKIP_REDEFINE) {
     customElements.define("cap-widget", CapWidget);
   } else if (customElements.get("cap-widget")) {
-    console.warn(
-      "[cap] the cap-widget element has already been defined, skipping re-defining it.\nto prevent this, set window.CAP_DONT_SKIP_REDEFINE to true",
+    log.warn(
+      T(),
+      "cap-widget custom element already defined, skipping re-define. set window.CAP_DONT_SKIP_REDEFINE = true to override",
     );
   }
 
